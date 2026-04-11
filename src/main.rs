@@ -11,7 +11,9 @@
 mod io;
 mod sys;
 
-use io::{ForthIo, SystemIo};
+use io::ForthIo;
+#[cfg(unix)]
+use io::SystemIo;
 
 /// Run the Forth interpreter, using `io` for all character-level I/O
 ///
@@ -48,9 +50,9 @@ extern "C" fn rust_eh_personality() -> ! {
 /// Panic handler for `no_std` Unix builds
 ///
 /// Without `std`, the runtime no longer provides a panic handler, so we must supply one.  On Unix
-/// the simplest correct behavior is an immediate process abort via `libc::abort`, which also
-/// flushes stdio buffers and triggers any registered `atexit` handlers — a cleaner exit than
-/// looping forever or issuing a raw `SIGABRT`.
+/// the simplest correct behavior is an immediate process abort via `libc::abort`, which terminates
+/// the process immediately without flushing stdio buffers or running `atexit` handlers — safer
+/// than looping forever or issuing a raw `SIGABRT`.
 #[cfg(unix)]
 #[panic_handler]
 // RustRover's linter shows a false positive "Found duplicate lang item `panic_impl`"

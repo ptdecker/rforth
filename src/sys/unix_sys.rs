@@ -1,8 +1,8 @@
 //! Unix syscall wrappers used by the rforth I/O layer
 //!
 //! [`SystemSys`] implements [`super::SysCalls`] using thin, `unsafe` wrappers around the
-//! corresponding `libc` calls. Error return values are currently unchecked; this is intentional
-//! for the initial scaffolding and can be tightened once the interpreter core is more complete.
+//! corresponding `libc` calls. Error return values are currently unchecked; this is intentional for
+//! the initial scaffolding and can be tightened once the interpreter core is more complete.
 //TODO: Implement error handling for syscalls
 
 /// Zero-sized token that carries the Unix [`super::SysCalls`] implementation
@@ -47,19 +47,21 @@ impl super::SysCalls for SystemSys {
 pub unsafe fn sys_set_raw_mode(fd: i32) -> libc::termios {
     unsafe {
         let mut orig = core::mem::zeroed::<libc::termios>();
-        libc::tcgetattr(fd, &mut orig);
+        let rc = libc::tcgetattr(fd, &mut orig);
+        assert_eq!(rc, 0, "libc::tcgetattr failed: unable to get terminal attributes");
         let mut raw = orig;
         raw.c_lflag &= !(libc::ICANON | libc::ECHO);
         raw.c_cc[libc::VMIN] = 1;
         raw.c_cc[libc::VTIME] = 0;
-        libc::tcsetattr(fd, libc::TCSAFLUSH, &raw);
+        let rc = libc::tcsetattr(fd, libc::TCSAFLUSH, &raw);
+        assert_eq!(rc, 0, "libc::tcsetattr failed: unable to set terminal attributes for raw mode");
         orig
     }
 }
 
 /// Restore the terminal attributes of `fd` to `orig` using `TCSAFLUSH`
 ///
-/// This is the inverse of [`sys_set_raw_mode`] and is called from the [`Drop`] impl of`SystemIo` to
+/// This is the inverse of [`sys_set_raw_mode`] and is called from the [`Drop`] impl of `SystemIo` to
 /// leave the terminal in a usable state after the interpreter exits.
 ///
 /// # Safety

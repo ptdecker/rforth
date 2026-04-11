@@ -6,15 +6,13 @@
 
 use super::*;
 
-use crate::sys;
-
 impl ForthIo for SystemIo {
     /// Not yet implemented for embedded targets.
     ///
     /// # Panics
     ///
     /// Always panics.
-    fn emit(&mut self, c: u8) {
+    fn emit(&mut self, _c: u8) {
         unimplemented!("emit not implemented for embedded target")
     }
 

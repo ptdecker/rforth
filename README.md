@@ -14,9 +14,12 @@ layer and syscall wrappers are in place; the Forth engine itself is not yet impl
 ```bash
 cargo build          # build
 cargo run            # run the interpreter (Unix only)
-cargo test           # run all tests
 cargo clippy         # lint
 ```
+
+> **Note**: `cargo test` is not yet supported. The crate is `#![no_std]` / `#![no_main]`, so the
+> default Rust test harness (which requires `std`) will not link. A custom test harness or a
+> host-side test runner will be added once the interpreter core is built out.
 
 ## Platform support
 

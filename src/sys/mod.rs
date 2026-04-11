@@ -20,7 +20,7 @@
 /// All methods are `unsafe` — callers must uphold the standard preconditions for the underlying
 /// syscall (valid file descriptors, valid buffer pointers and lengths, etc.).
 pub trait SysCalls {
-    /// Read up to `buf.len()` bytes from the file descriptor ` fd ` into `buf`
+    /// Read up to `buf.len()` bytes from the file descriptor `fd` into `buf`
     ///
     /// Returns the number of bytes actually read, or a negative value on error (the raw `read(2)`
     /// return value).
