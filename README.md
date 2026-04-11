@@ -44,6 +44,11 @@ layer for the actual syscalls, keeping the two concerns separate.
 `SystemIo` puts stdin into raw mode (no canonical processing, no echo, `VMIN=1 VTIME=0`) on
 construction and restores the original terminal settings automatically when it is dropped.
 
+## Wiki
+
+A [wiki](https://github.com/joshua-maros/rforth/wiki) is available containing supporting
+documentation.
+
 ## Dependencies
 
 Intentionally near-zero. The [`libc`](https://crates.io/crates/libc) is the only external crate,
