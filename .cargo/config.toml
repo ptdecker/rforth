@@ -1,0 +1,15 @@
+# Link against the macOS System library, which provides libc, libm, and related symbols. Required
+# because #![no_std] disables default library linking; without this the linker cannot find read(2)
+# write(2), abort(3), memcpy(3), etc.
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-lSystem"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-lSystem"]
+
+# On Linux, link explicitly against libc for the same reason.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-lc"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-lc"]

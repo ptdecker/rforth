@@ -13,3 +13,6 @@
 
 # RustRover
 .idea/
+
+# LLM Tooling
+CLAUDE.md
