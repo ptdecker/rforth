@@ -2,6 +2,6 @@
 name = "rforth"
 version = "0.1.0"
 edition = "2024"
-authors = ["P. Todd Decker <ptdecker@mac.com"]
+authors = ["P. Todd Decker <ptdecker@mac.com>"]
 
 [dependencies]
