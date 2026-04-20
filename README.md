@@ -24,7 +24,8 @@ cargo clippy         # lint
 
 CI measures test coverage with
 [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) and uploads the LCOV report to
-Codecov, which updates the badge above for the `main` branch.
+Codecov using GitHub Actions OIDC authentication, which updates the badge above for the `main`
+branch.
 
 To measure coverage locally, install `cargo-llvm-cov` and run:
 

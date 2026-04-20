@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -62,4 +63,4 @@ jobs:
         with:
           files: lcov.info
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
