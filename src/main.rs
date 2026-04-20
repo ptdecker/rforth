@@ -1,81 +1,8 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(not(test), no_main)]
 
-//! `rforth` — a minimal, dependency-free Forth interpreter.
-//!
-//! The interpreter core ([`run_forth`]) is platform-agnostic and communicates with the outside
-//! world exclusively through the [`ForthIo`] trait.  Platform selection happens at compile time via
-//! `cfg` attributes and the `embedded` Cargo feature flag; see the `io` and `sys` modules for the
-//! concrete implementations.
-
-#[cfg(not(test))]
-mod io;
-#[cfg(not(test))]
-mod sys;
-mod tokenizer;
-
-#[cfg(not(test))]
-use io::ForthIo;
 #[cfg(all(unix, not(test)))]
-use io::SystemIo;
-
-#[cfg(not(test))]
-const MAX_LINE_BYTES: usize = 128;
-#[cfg(not(test))]
-const MAX_WORDS: usize = 32;
-
-/// Run the Forth interpreter, using `io` for all character-level I/O
-///
-/// This function is platform-agnostic: it never touches file descriptors, terminal state, or any OS
-/// primitive directly.  All such concerns are encapsulated in the [`ForthIo`] implementation that
-/// is passed in.
-///
-/// Currently, the interpreter prints `OK\n`, reads a line of input, tokenizes it into words, and
-/// prints those words back as a vector. This is early scaffolding; a full Forth engine will be
-/// built on top of this loop.
-#[cfg(not(test))]
-fn run_forth(io: &mut impl ForthIo) {
-    io.emit(b'O');
-    io.emit(b'K');
-    io.emit(b'\n');
-
-    let mut line = [0u8; MAX_LINE_BYTES];
-    let mut line_len = 0;
-
-    loop {
-        let c = io.key();
-        io.emit(c);
-
-        if c == b'\r' || c == b'\n' {
-            if c == b'\r' {
-                io.emit(b'\n');
-            }
-            output_words(io, &line[..line_len]);
-            line_len = 0;
-        } else if line_len < line.len() {
-            line[line_len] = c;
-            line_len += 1;
-        }
-    }
-}
-
-#[cfg(not(test))]
-fn output_words(io: &mut impl ForthIo, line: &[u8]) {
-    let words = tokenizer::parse_words::<MAX_WORDS>(line);
-
-    io.emit(b'[');
-    for (index, word) in words.as_slice().iter().enumerate() {
-        if index != 0 {
-            io.emit(b',');
-            io.emit(b' ');
-        }
-        for c in word.iter() {
-            io.emit(*c);
-        }
-    }
-    io.emit(b']');
-    io.emit(b'\n');
-}
+use rforth::{io::SystemIo, run_forth};
 
 /// Exception-handling personality stub required by the precompiled `libcore`
 ///
@@ -98,8 +25,6 @@ extern "C" fn rust_eh_personality() -> ! {
 /// than looping forever or issuing a raw `SIGABRT`.
 #[cfg(all(unix, not(test)))]
 #[panic_handler]
-// RustRover's linter shows a false positive "Found duplicate lang item `panic_impl`"
-//TODO: Investigate more deeply to see if this is a false positive can be resolved
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { libc::abort() }
 }
@@ -116,8 +41,8 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 #[cfg(all(unix, not(test)))]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
-    run_forth(&mut SystemIo::new());
-    0
+    let mut io = SystemIo::new();
+    run_forth(&mut io)
 }
 
 #[cfg(all(not(unix), feature = "embedded"))]
