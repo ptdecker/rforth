@@ -30,23 +30,48 @@ pub fn run_forth(io: &mut impl ForthIo) -> ! {
     io.emit(b'K');
     io.emit(b'\n');
 
+    run_forth_loop(io)
+}
+
+fn run_forth_loop(io: &mut impl ForthIo) -> ! {
     let mut line = [0u8; MAX_LINE_BYTES];
     let mut line_len = 0;
 
     loop {
-        let c = io.key();
-        io.emit(c);
+        process_key(io, &mut line, &mut line_len);
+    }
+}
 
-        if c == b'\r' || c == b'\n' {
-            if c == b'\r' {
-                io.emit(b'\n');
-            }
-            output_words(io, &line[..line_len]);
-            line_len = 0;
-        } else if line_len < line.len() {
-            line[line_len] = c;
-            line_len += 1;
+/// Run the interpreter for a fixed number of input bytes.
+///
+/// This uses the same loop body as [`run_forth`], but returns after `keys_to_read` calls to
+/// [`ForthIo::key`]. It is intended for host-side tests and scripted harnesses.
+pub fn run_forth_steps(io: &mut impl ForthIo, keys_to_read: usize) {
+    io.emit(b'O');
+    io.emit(b'K');
+    io.emit(b'\n');
+
+    let mut line = [0u8; MAX_LINE_BYTES];
+    let mut line_len = 0;
+
+    for _ in 0..keys_to_read {
+        process_key(io, &mut line, &mut line_len);
+    }
+}
+
+fn process_key(io: &mut impl ForthIo, line: &mut [u8; MAX_LINE_BYTES], line_len: &mut usize) {
+    let c = io.key();
+    io.emit(c);
+
+    if c == b'\r' || c == b'\n' {
+        if c == b'\r' {
+            io.emit(b'\n');
         }
+        output_words(io, &line[..*line_len]);
+        *line_len = 0;
+    } else if *line_len < line.len() {
+        line[*line_len] = c;
+        *line_len += 1;
     }
 }
 
