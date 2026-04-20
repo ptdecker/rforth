@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2024"
 authors = ["P. Todd Decker <ptdecker@mac.com>"]
 
+[[bin]]
+name = "rforth"
+path = "src/main.rs"
+test = false
+
 [features]
 default = []
 # Embedded feature target is not yet implemented

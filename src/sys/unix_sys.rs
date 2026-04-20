@@ -48,13 +48,19 @@ pub unsafe fn sys_set_raw_mode(fd: i32) -> libc::termios {
     unsafe {
         let mut orig = core::mem::zeroed::<libc::termios>();
         let rc = libc::tcgetattr(fd, &mut orig);
-        assert_eq!(rc, 0, "libc::tcgetattr failed: unable to get terminal attributes");
+        assert_eq!(
+            rc, 0,
+            "libc::tcgetattr failed: unable to get terminal attributes"
+        );
         let mut raw = orig;
         raw.c_lflag &= !(libc::ICANON | libc::ECHO);
         raw.c_cc[libc::VMIN] = 1;
         raw.c_cc[libc::VTIME] = 0;
         let rc = libc::tcsetattr(fd, libc::TCSAFLUSH, &raw);
-        assert_eq!(rc, 0, "libc::tcsetattr failed: unable to set terminal attributes for raw mode");
+        assert_eq!(
+            rc, 0,
+            "libc::tcsetattr failed: unable to set terminal attributes for raw mode"
+        );
         orig
     }
 }

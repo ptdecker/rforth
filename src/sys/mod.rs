@@ -1,6 +1,6 @@
 //! Raw syscall wrappers for rforth
 //!
-//! This module defines the [`SysCalls`] trait specifying the contract every platform-specific 
+//! This module defines the [`SysCalls`] trait specifying the contract every platform-specific
 //! syscall implementation must satisfy. It also re-exports the platform-appropriate [`SystemSys`]
 //! struct so the I/O layer can use `crate::sys::SystemSys` without knowing which platform it is on.
 //!
