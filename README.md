@@ -29,7 +29,7 @@ and commits the updated badge on pushes to `main`.
 To measure coverage locally, install `cargo-llvm-cov` and run:
 
 ```bash
-cargo llvm-cov --workspace --lcov --output-path lcov.info
+cargo llvm-cov --lcov --output-path lcov.info
 scripts/generate-coverage-badge.sh lcov.info assets/coverage.svg
 ```
 
