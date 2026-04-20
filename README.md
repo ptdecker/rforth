@@ -1,6 +1,6 @@
 # rforth
 
-[![codecov](https://codecov.io/gh/ptdecker/rforth/branch/main/graph/badge.svg)](https://codecov.io/gh/ptdecker/rforth)
+![coverage](assets/coverage.svg)
 
 A minimal, portable, Forth language interpreter that is implemented in Rust. The interpreter core is
 `no_std` and platform-agnostic; platform selection happens at compile time via `cfg` attributes and
@@ -23,14 +23,14 @@ cargo clippy         # lint
 ## Coverage
 
 CI measures test coverage with
-[`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) and uploads the LCOV report to
-Codecov using GitHub Actions OIDC authentication, which updates the badge above for the `main`
-branch.
+[`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov), generates `assets/coverage.svg`,
+and commits the updated badge on pushes to `main`.
 
 To measure coverage locally, install `cargo-llvm-cov` and run:
 
 ```bash
 cargo llvm-cov --workspace --lcov --output-path lcov.info
+scripts/generate-coverage-badge.sh lcov.info assets/coverage.svg
 ```
 
 ## Platform support
