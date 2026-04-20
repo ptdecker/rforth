@@ -59,6 +59,7 @@ pub struct SystemIo {
 }
 
 #[cfg(unix)]
+#[allow(clippy::new_without_default)]
 impl SystemIo {
     /// Construct a new `SystemIo`, putting stdin into raw (non-canonical, no-echo) mode.
     ///

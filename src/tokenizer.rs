@@ -36,6 +36,12 @@ impl<'a, const N: usize> WordVec<'a, N> {
     }
 }
 
+impl<'a, const N: usize> Default for WordVec<'a, N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Parse ASCII whitespace-separated words out of an input line.
 pub fn parse_words<const N: usize>(input: &[u8]) -> WordVec<'_, N> {
     let mut words = WordVec::new();

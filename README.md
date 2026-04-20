@@ -1,5 +1,6 @@
 # rforth
 
+![CI](https://github.com/ptdecker/rforth/actions/workflows/ci.yml/badge.svg)
 ![coverage](assets/coverage.svg)
 
 A minimal, portable, Forth language interpreter that is implemented in Rust. The interpreter core is
@@ -20,17 +21,45 @@ cargo test           # run tests
 cargo clippy         # lint
 ```
 
+## Testing
+
+Tests are host-side Rust tests that exercise the reusable library crate. The tokenizer tests cover
+allocation-free word parsing, capacity handling, and `WordVec` behavior. The interpreter tests use a
+scripted `ForthIo` implementation to drive the core input loop without touching the terminal or raw
+syscalls.
+
+Run the full test suite with:
+
+```bash
+cargo test
+```
+
 ## Coverage
 
 CI measures test coverage with
 [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov), generates `assets/coverage.svg`,
 and commits the updated badge on pushes to `main`.
 
-To measure coverage locally, install `cargo-llvm-cov` and run:
+The badge intentionally tracks the testable interpreter core and tokenizer:
+
+- included: `src/lib.rs`, `src/tokenizer.rs`, and tests under `tests/`
+- excluded: `src/main.rs`, `src/io/*`, and `src/sys/*`
+
+The excluded files are the runtime entrypoint, terminal I/O, and raw syscall glue. Those paths need
+platform or integration tests rather than host-side unit tests, so excluding them keeps the badge
+focused on the code currently covered by automated tests.
+
+To measure badge coverage locally, install `cargo-llvm-cov` and run:
 
 ```bash
-cargo llvm-cov --lcov --output-path lcov.info
+cargo llvm-cov --lib --tests --ignore-filename-regex 'src/(main.rs|io/.*|sys/.*)' --lcov --output-path lcov.info
 scripts/generate-coverage-badge.sh lcov.info assets/coverage.svg
+```
+
+For an unscoped coverage report across all instrumented source files, omit the ignore regex:
+
+```bash
+cargo llvm-cov --lib --tests --lcov --output-path lcov.info
 ```
 
 ## Platform support

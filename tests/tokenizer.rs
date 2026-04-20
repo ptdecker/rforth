@@ -61,3 +61,10 @@ fn word_vec_reports_full_push_failure() {
     assert!(!words.push(b"three"));
     assert_eq!(words.as_slice(), &[&b"one"[..], &b"two"[..]]);
 }
+
+#[test]
+fn word_vec_default_is_empty() {
+    let words = WordVec::<4>::default();
+
+    assert!(words.as_slice().is_empty());
+}
