@@ -1,5 +1,7 @@
 # rforth
 
+![coverage](assets/coverage.svg)
+
 A minimal, portable, Forth language interpreter that is implemented in Rust. The interpreter core is
 `no_std` and platform-agnostic; platform selection happens at compile time via `cfg` attributes and
 the `embedded` Cargo feature flag.
@@ -14,12 +16,22 @@ layer and syscall wrappers are in place; the Forth engine itself is not yet impl
 ```bash
 cargo build          # build
 cargo run            # run the interpreter (Unix only)
+cargo test           # run tests
 cargo clippy         # lint
 ```
 
-> **Note**: `cargo test` is not yet supported. The crate is `#![no_std]` / `#![no_main]`, so the
-> default Rust test harness (which requires `std`) will not link. A custom test harness or a
-> host-side test runner will be added once the interpreter core is built out.
+## Coverage
+
+CI measures test coverage with
+[`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov), generates `assets/coverage.svg`,
+and commits the updated badge on pushes to `main`.
+
+To measure coverage locally, install `cargo-llvm-cov` and run:
+
+```bash
+cargo llvm-cov --workspace --lcov --output-path lcov.info
+scripts/generate-coverage-badge.sh lcov.info assets/coverage.svg
+```
 
 ## Platform support
 
@@ -32,6 +44,7 @@ cargo clippy         # lint
 ## Architecture
 
 ```
+lib.rs          — no_std interpreter core and reusable modules
 main.rs         — no_std / no_main entry point; constructs SystemIo and calls run_forth()
 io/             — ForthIo trait + SystemIo struct; platform impls in unix_io.rs / embedded_io.rs
 sys/            — SysCalls trait + raw syscall wrappers; unix_sys.rs / embedded_sys.rs

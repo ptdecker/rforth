@@ -1,6 +1,7 @@
 # cargo
 **/debug
 **/target
+lcov.info
 
 # rustfmt
 **/*.rs.bk
