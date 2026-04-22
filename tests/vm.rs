@@ -3,6 +3,8 @@
 //! These tests verify the flat memory layout, type-derived sizing, stack-in-memory behavior,
 //! terminal input buffer handling, and the selected direct/UART MMIO or port I/O dispatch model.
 
+use core::mem::size_of;
+
 use rforth::io::ForthIo;
 use rforth::vm::*;
 
@@ -406,6 +408,23 @@ fn allot_advances_dictionary_and_detects_tib_collision() {
         vm.allot(TIB_START as usize),
         Err(VmError::DictionaryOverflow),
         "allot should reject dictionary growth into the TIB region"
+    );
+}
+
+/// Verifies oversized dictionary allocation cannot overflow address arithmetic.
+#[test]
+fn allot_rejects_address_arithmetic_overflow() {
+    let io = ScriptedIo::new(b"");
+    let mut vm = ForthVm::new(io);
+
+    assert_eq!(
+        vm.allot(usize::MAX),
+        Err(VmError::DictionaryOverflow),
+        "allot should reject byte counts that overflow address arithmetic"
+    );
+    assert_eq!(
+        vm.here, DICTIONARY_START,
+        "failed allot should leave the dictionary pointer unchanged"
     );
 }
 

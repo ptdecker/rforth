@@ -3,6 +3,8 @@
 //! The VM models a small flat machine: dictionary space, terminal input buffer, data stack, return
 //! stack, and optional I/O regions all live in one virtual address space.
 
+use core::mem::size_of;
+
 use crate::io::ForthIo;
 
 /// Smallest addressable unit in VM memory.
@@ -244,8 +246,9 @@ impl<I: ForthIo> ForthVm<I> {
 
     /// Read one little-endian [`Cell`] from virtual memory.
     ///
-    /// Cell reads must be aligned to [`CELL_ALIGN`]. In memory-mapped I/O builds, cell reads from
-    /// the MMIO window are dispatched as I/O reads.
+    /// Non-I/O cell reads must be aligned to [`CELL_ALIGN`]. In memory-mapped I/O builds, cell
+    /// reads from the MMIO window are dispatched as I/O reads and may target byte-wide device
+    /// registers at unaligned addresses.
     pub fn read_cell(&mut self, address: Address) -> Result<Cell, VmError> {
         #[cfg(not(feature = "vm-port-io"))]
         if is_mmio_address(address) {
@@ -260,8 +263,9 @@ impl<I: ForthIo> ForthVm<I> {
 
     /// Write one little-endian [`Cell`] to virtual memory.
     ///
-    /// Cell writes must be aligned to [`CELL_ALIGN`]. In memory-mapped I/O builds, cell writes to
-    /// the MMIO window are dispatched as I/O writes.
+    /// Non-I/O cell writes must be aligned to [`CELL_ALIGN`]. In memory-mapped I/O builds, cell
+    /// writes to the MMIO window are dispatched as I/O writes and may target byte-wide device
+    /// registers at unaligned addresses.
     pub fn write_cell(&mut self, address: Address, value: Cell) -> Result<(), VmError> {
         #[cfg(not(feature = "vm-port-io"))]
         if is_mmio_address(address) {
@@ -382,11 +386,13 @@ impl<I: ForthIo> ForthVm<I> {
     /// returned range.
     pub fn allot(&mut self, bytes: usize) -> Result<Address, VmError> {
         let start = self.here;
-        let next = address_index(start) + bytes;
+        let next = address_index(start)
+            .checked_add(bytes)
+            .ok_or(VmError::DictionaryOverflow)?;
         if next > address_index(TIB_START) {
             return Err(VmError::DictionaryOverflow);
         }
-        self.here = next as Address;
+        self.here = next.try_into().map_err(|_| VmError::DictionaryOverflow)?;
         Ok(start)
     }
 
