@@ -2,16 +2,18 @@
 
 //! `rforth` — a minimal, dependency-free Forth interpreter.
 //!
-//! The interpreter core ([`run_forth`]) is platform-agnostic and communicates with the outside
-//! world exclusively through the [`io::ForthIo`] trait. Platform selection happens at compile time
+//! The interpreter core (`run_forth`) is platform-agnostic and communicates with the outside
+//! world exclusively through the `ForthIo` trait. Platform selection happens at compile time
 //! via `cfg` attributes and the `embedded` Cargo feature flag; see the `io` and `sys` modules for
 //! the concrete implementations.
 
 pub mod io;
 pub mod sys;
 pub mod tokenizer;
+pub mod vm;
 
 use io::ForthIo;
+use vm::ForthVm;
 
 const MAX_LINE_BYTES: usize = 128;
 const MAX_WORDS: usize = 32;
@@ -34,11 +36,12 @@ pub fn run_forth(io: &mut impl ForthIo) -> ! {
 }
 
 fn run_forth_loop(io: &mut impl ForthIo) -> ! {
+    let mut vm = ForthVm::new(io);
     let mut line = [0u8; MAX_LINE_BYTES];
     let mut line_len = 0;
 
     loop {
-        process_key(io, &mut line, &mut line_len);
+        process_key(&mut vm.io, &mut line, &mut line_len);
     }
 }
 
@@ -51,11 +54,12 @@ pub fn run_forth_steps(io: &mut impl ForthIo, keys_to_read: usize) {
     io.emit(b'K');
     io.emit(b'\n');
 
+    let mut vm = ForthVm::new(io);
     let mut line = [0u8; MAX_LINE_BYTES];
     let mut line_len = 0;
 
     for _ in 0..keys_to_read {
-        process_key(io, &mut line, &mut line_len);
+        process_key(&mut vm.io, &mut line, &mut line_len);
     }
 }
 

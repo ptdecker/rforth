@@ -13,6 +13,10 @@ test = false
 default = []
 # Embedded feature target is not yet implemented
 embedded = []
+# Use a separate I/O port address space instead of memory-mapped I/O
+vm-port-io = []
+# Expose host-backed KEY/EMIT through UART-style data and status registers
+vm-uart = []
 
 [profile.dev]
 panic = "abort"
