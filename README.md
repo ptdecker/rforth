@@ -19,6 +19,7 @@ cargo build          # build
 cargo run            # run the interpreter (Unix only)
 cargo test           # run tests
 cargo clippy         # lint
+scripts/check-all-vm-variants.sh  # format, test, and lint all VM variants
 ```
 
 ## Testing
@@ -32,6 +33,12 @@ Run the full test suite with:
 
 ```bash
 cargo test
+```
+
+Run the full VM feature matrix with:
+
+```bash
+scripts/check-all-vm-variants.sh
 ```
 
 ## Coverage
@@ -56,7 +63,7 @@ cargo llvm-cov --lib --tests --ignore-filename-regex 'src/(main.rs|io/.*|sys/.*)
 scripts/generate-coverage-badge.sh lcov.info assets/coverage.svg
 ```
 
-For an unscoped coverage report across all instrumented source files, omit the ignore regex:
+For an unscoped coverage report across all instrumented source files, omit the ignored regex:
 
 ```bash
 cargo llvm-cov --lib --tests --lcov --output-path lcov.info
@@ -77,6 +84,7 @@ lib.rs          — no_std interpreter core and reusable modules
 main.rs         — no_std / no_main entry point; constructs SystemIo and calls run_forth()
 io/             — ForthIo trait + SystemIo struct; platform impls in unix_io.rs / embedded_io.rs
 sys/            — SysCalls trait + raw syscall wrappers; unix_sys.rs / embedded_sys.rs
+vm.rs           — flat-memory Forth VM state, stacks, memory access, and I/O dispatch
 ```
 
 The interpreter core (`run_forth`) is platform-agnostic and communicates with the outside world
@@ -85,6 +93,11 @@ layer for the actual syscalls, keeping the two concerns separate.
 
 `SystemIo` puts stdin into raw mode (no canonical processing, no echo, `VMIN=1 VTIME=0`) on
 construction and restores the original terminal settings automatically when it is dropped.
+
+The VM uses typed aliases for `MemoryWord`, `Cell`, and `Address`; `MEMORY_SIZE` is derived from
+the address type. All VM layout and I/O values are named constants. The default VM profile is
+direct memory-mapped I/O; `vm-uart`, `vm-port-io`, and their combination selects the alternate UART
+and port-mapped models.
 
 ## Wiki
 

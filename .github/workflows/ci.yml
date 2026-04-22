@@ -29,14 +29,11 @@ jobs:
           rustup update stable
           rustup default stable
 
-      - name: Run tests
-        run: cargo test
+      - name: Check all VM variants
+        run: scripts/check-all-vm-variants.sh
 
       - name: Build binary
         run: cargo build
-
-      - name: Run clippy
-        run: cargo clippy
 
   coverage:
     name: Coverage

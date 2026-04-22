@@ -42,6 +42,20 @@ pub trait ForthIo {
     fn key(&mut self) -> u8;
 }
 
+/// Forward [`ForthIo`] calls through mutable references.
+///
+/// This lets higher-level structures, such as the VM, own a borrowed I/O object while still being
+/// generic over `I: ForthIo`.
+impl<T: ForthIo + ?Sized> ForthIo for &mut T {
+    fn emit(&mut self, c: u8) {
+        (**self).emit(c);
+    }
+
+    fn key(&mut self) -> u8 {
+        (**self).key()
+    }
+}
+
 /// Concrete I/O implementation for the current compiler target
 ///
 /// On Unix, `SystemIo::new` switches the controlling terminal to raw mode so that keystrokes are
