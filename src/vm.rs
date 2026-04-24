@@ -1,11 +1,13 @@
 //! Forth virtual machine state and memory access.
 //!
 //! The VM models a small flat machine: dictionary space, terminal input buffer, data stack, return
-//! stack, and optional I/O regions all live in one virtual address space.
+//! stack, dictionary-resident words, and optional input/output regions all live in one virtual
+//! address space.
 
 use core::mem::size_of;
 
 use crate::io::ForthIo;
+use crate::words::{Control, Primitive};
 
 /// Smallest addressable unit in VM memory.
 ///
@@ -13,9 +15,7 @@ use crate::io::ForthIo;
 /// spelling the concrete type directly.
 pub type MemoryWord = u8;
 
-/// Forth data cell stored on stacks and read/written by cell memory operations.
-///
-/// Primitive word execution will use this type for stack values.
+/// Forth data cell stored on stacks, threaded code, and dictionary fields.
 pub type Cell = i64;
 
 /// VM-visible memory address.
@@ -31,6 +31,9 @@ pub const CELL_SIZE: usize = size_of::<Cell>();
 
 /// Required alignment, in memory words, for cell accesses.
 pub const CELL_ALIGN: usize = CELL_SIZE;
+
+/// Sentinel address used when no valid dictionary link or instruction pointer is available.
+pub const NO_ADDRESS: Address = 0xFFFF;
 
 /// First address available to the dictionary.
 pub const DICTIONARY_START: Address = 0x0000;
@@ -56,71 +59,104 @@ pub const STACK_BASE: Address = 0xFE00;
 /// Initial data stack pointer; the data stack grows downward from here.
 pub const DATA_STACK_BASE: Address = STACK_BASE;
 
-/// Start the address of the memory-mapped I/O window.
+/// Start the address of the memory-mapped input/output window.
 pub const MMIO_BASE: Address = 0xFF00;
 
-/// Size of the memory-mapped I/O window in memory words.
+/// Size of the memory-mapped input/output window in memory words.
 pub const MMIO_SIZE: usize = 0x0100;
 
-/// First address after the memory-mapped I/O window.
+/// First address after the memory-mapped input/output window.
 pub const MMIO_END: usize = MMIO_BASE as usize + MMIO_SIZE;
 
 /// Status value returned when input is considered ready.
 pub const KEY_READY_TRUE: Cell = 1;
 
-/// Value returned for reads from unmapped I/O locations.
+/// Value returned for reads from unmapped input/output locations.
 pub const UNKNOWN_IO_VALUE: Cell = 0;
 
-/// Direct MMIO address that reads one byte from [`ForthIo::key`].
+/// Direct memory-mapped input/output address that reads one byte from [`ForthIo::key`].
 pub const DIRECT_MMIO_KEY_ADDR: Address = MMIO_BASE;
 
-/// Direct MMIO address that writes one byte to [`ForthIo::emit`].
+/// Direct memory-mapped input/output address that writes one byte to [`ForthIo::emit`].
 pub const DIRECT_MMIO_EMIT_ADDR: Address = MMIO_BASE + 1;
 
-/// Direct MMIO address that reports whether a key is ready.
+/// Direct memory-mapped input/output address that reports whether a key is ready.
 pub const DIRECT_MMIO_KEY_READY_ADDR: Address = MMIO_BASE + 2;
 
-/// Direct port that reads one byte from [`ForthIo::key`].
+/// Direct input/output port that reads one byte from [`ForthIo::key`].
 pub const DIRECT_KEY_PORT: Address = 0x0000;
 
-/// Direct port that writes one byte to [`ForthIo::emit`].
+/// Direct input/output port that writes one byte to [`ForthIo::emit`].
 pub const DIRECT_EMIT_PORT: Address = 0x0001;
 
-/// Direct port that reports whether a key is ready.
+/// Direct input/output port that reports whether a key is ready.
 pub const DIRECT_KEY_READY_PORT: Address = 0x0002;
 
-/// Base address of the UART register block in memory-mapped I/O mode.
+/// Base address of the universal asynchronous receiver-transmitter register block in
+/// memory-mapped input/output mode.
 pub const UART_MMIO_BASE: Address = MMIO_BASE;
 
-/// Base port of the UART register block in port I/O mode.
+/// Base port of the universal asynchronous receiver-transmitter register block in port
+/// input/output mode.
 pub const UART_PORT_BASE: Address = 0x03F8;
 
-/// UART offset for the receive buffer register on read and transmit holding register on write.
+/// Universal asynchronous receiver-transmitter offset for the receive buffer register on read and
+/// transmit holding register on a "write".
 pub const UART_RBR_THR_OFFSET: Address = 0x0000;
 
-/// UART offset for the line status register.
+/// Universal asynchronous receiver-transmitter offset for the line status register.
 pub const UART_LSR_OFFSET: Address = 0x0005;
 
-/// UART MMIO address for RBR reads and THR writes.
+/// Universal asynchronous receiver-transmitter memory-mapped input/output address for receive
+/// buffer reads and transmit holding register writes.
 pub const UART_RBR_THR_ADDR: Address = UART_MMIO_BASE + UART_RBR_THR_OFFSET;
 
-/// UART MMIO address for the line status register.
+/// Universal asynchronous receiver-transmitter memory-mapped input/output address for the line
+/// status register.
 pub const UART_LSR_ADDR: Address = UART_MMIO_BASE + UART_LSR_OFFSET;
 
-/// UART port for RBR reads and THR writes.
+/// Universal asynchronous receiver-transmitter port for receive buffer reads and transmit holding
+/// register writes.
 pub const UART_RBR_THR_PORT: Address = UART_PORT_BASE + UART_RBR_THR_OFFSET;
 
-/// UART port for the line status register.
+/// Universal asynchronous receiver-transmitter port for the line status register.
 pub const UART_LSR_PORT: Address = UART_PORT_BASE + UART_LSR_OFFSET;
 
-/// UART line status bit indicating receive data is ready.
+/// Universal asynchronous receiver-transmitter line status bit indicating receive data is ready.
 pub const UART_LSR_DATA_READY: Cell = 0x01;
 
-/// UART line status bit indicating the transmit buffer register is empty.
+/// Universal asynchronous receiver-transmitter line status bit indicating the transmit buffer
+/// register is empty.
 pub const UART_LSR_THR_EMPTY: Cell = 0x20;
 
-/// Initial UART line status value exposed by the host-backed VM.
+/// Initial universal asynchronous receiver-transmitter line status value exposed by the host-backed
+/// VM.
 pub const UART_LSR_READY: Cell = UART_LSR_DATA_READY | UART_LSR_THR_EMPTY;
+
+/// Offset of the dictionary link field from the start of a dictionary entry.
+pub const DICTIONARY_LINK_OFFSET: usize = 0;
+
+/// Offset of the dictionary flag byte from the start of a dictionary entry.
+pub const DICTIONARY_FLAGS_OFFSET: usize = CELL_SIZE;
+
+/// Offset of the dictionary name-length byte from the start of a dictionary entry.
+pub const DICTIONARY_NAME_LENGTH_OFFSET: usize = DICTIONARY_FLAGS_OFFSET + 1;
+
+/// Offset of the first dictionary name byte from the start of a dictionary entry.
+pub const DICTIONARY_NAME_BYTES_OFFSET: usize = DICTIONARY_NAME_LENGTH_OFFSET + 1;
+
+/// The flag bit marking a dictionary word as immediate.
+pub const WORD_FLAG_IMMEDIATE: MemoryWord = 0x01;
+
+/// The flag bit marking a dictionary word as a primitive handler rather than a colon definition.
+pub const WORD_FLAG_PRIMITIVE: MemoryWord = 0x02;
+
+/// Marker stored in a code field address (CFA) for a colon definition.
+///
+/// The code field address is the dictionary cell that tells the inner interpreter how to execute a
+/// word. Primitive words store an encoded primitive identifier there; colon definitions store this
+/// dedicated marker and dispatch through `DOCOL`.
+pub const DOCOL_CODE_FIELD: Cell = -1;
 
 const MEMORY_WORD_ZERO: MemoryWord = 0;
 
@@ -136,7 +172,7 @@ pub enum InterpreterState {
 /// Stack selector used in stack-related VM errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StackKind {
-    /// The parameter/data stack.
+    /// The parameter or data stack.
     Data,
     /// The return stack.
     Return,
@@ -155,26 +191,59 @@ pub enum VmError {
     StackUnderflow(StackKind),
     /// Input was too large for the terminal input buffer.
     TibOverflow,
-    /// Dictionary allocation would collide with the terminal input buffer.
+    /// Dictionary allocation would collide with the terminal input buffer or exceed dictionary
+    /// encoding limits.
     DictionaryOverflow,
+    /// A dictionary header was malformed.
+    InvalidDictionaryEntry,
+    /// An execution token referred to an unknown primitive handler.
+    UnknownPrimitive,
+}
+
+/// Metadata returned for a dictionary entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DictionaryEntry {
+    /// Address of the dictionary header start; this is also the execution token (XT) used here.
+    ///
+    /// The execution token is the address used by threaded code to refer to a word.
+    pub xt: Address,
+    /// Address of the link field.
+    pub link_addr: Address,
+    /// Address of the code field address (CFA).
+    ///
+    /// The code field address is the cell that identifies the primitive handler or colon-entry
+    /// behavior for the word.
+    pub cfa: Address,
+    /// Address of the parameter field.
+    pub pfa: Address,
+    /// Encoded flags byte.
+    pub flags: MemoryWord,
+    /// Dictionary name length in bytes.
+    pub name_len: MemoryWord,
 }
 
 /// Forth virtual machine state.
 ///
 /// The VM owns one flat memory array. Dictionary bytes, the terminal input buffer, the data stack,
-/// the return stack, and memory-mapped I/O all use addresses within that array's address space.
-/// Stack values are stored as little-endian [`Cell`] values in VM memory.
+/// the return stack, dictionary entries, and memory-mapped input/output all use addresses within
+/// that array's address space. Stack values are stored as little-endian [`Cell`] values in VM
+/// memory.
 pub struct ForthVm<I: ForthIo> {
     /// Flat virtual memory backing store.
     memory: [MemoryWord; MEMORY_SIZE],
-    /// Dictionary pointer: the next free address for compiled data.
-    pub here: Address,
-    /// Instruction pointer for future primitive/threaded execution.
+    /// Compile pointer register. This is the VM state corresponding to Forth `HERE`.
+    pub p: Address,
+    /// Instruction pointer register for threaded execution.
     pub ip: Address,
+    /// Work register holding the current execution token (XT).
+    pub w: Address,
     /// Data stack pointer; the data stack grows downward from [`DATA_STACK_BASE`].
     pub sp: Address,
     /// Return stack pointer; the return stack grows upward from [`RETURN_STACK_BASE`].
     pub rp: Address,
+    /// Address of the most recently installed dictionary word, or [`NO_ADDRESS`] when the
+    /// dictionary is empty.
+    pub latest: Address,
     /// Current interpreter mode.
     pub state: InterpreterState,
     /// Start the address of the terminal input buffer.
@@ -183,7 +252,7 @@ pub struct ForthVm<I: ForthIo> {
     pub tib_len: usize,
     /// Parse offset into the terminal input buffer, equivalent to Forth `>IN`.
     pub input_pos: usize,
-    /// Host I/O backend used by MMIO or port dispatch.
+    /// Host input/output backend used by memory-mapped input/output or port dispatch.
     pub io: I,
 }
 
@@ -195,10 +264,12 @@ impl<I: ForthIo> ForthVm<I> {
     pub const fn new(io: I) -> Self {
         Self {
             memory: [MEMORY_WORD_ZERO; MEMORY_SIZE],
-            here: DICTIONARY_START,
-            ip: DICTIONARY_START,
+            p: DICTIONARY_START,
+            ip: NO_ADDRESS,
+            w: NO_ADDRESS,
             sp: DATA_STACK_BASE,
             rp: RETURN_STACK_BASE,
+            latest: NO_ADDRESS,
             state: InterpreterState::Interpreting,
             tib_start: TIB_START,
             tib_len: 0,
@@ -214,8 +285,9 @@ impl<I: ForthIo> ForthVm<I> {
 
     /// Read one [`MemoryWord`] from virtual memory.
     ///
-    /// In memory-mapped I/O builds, reads from the MMIO window are dispatched to the configured
-    /// direct or UART device model instead of returning the backing array contents.
+    /// In memory-mapped input/output builds, reads from the input/output window are dispatched to
+    /// the configured direct or universal asynchronous receiver-transmitter device model instead of
+    /// returning the backing array contents.
     pub fn read_memory_word(&mut self, address: Address) -> Result<MemoryWord, VmError> {
         #[cfg(not(feature = "vm-port-io"))]
         if is_mmio_address(address) {
@@ -227,8 +299,9 @@ impl<I: ForthIo> ForthVm<I> {
 
     /// Write one [`MemoryWord`] to virtual memory.
     ///
-    /// In memory-mapped I/O builds, writes to the MMIO window are dispatched to the configured
-    /// direct or UART device model instead of mutating the backing array.
+    /// In memory-mapped input/output builds, writes to the input/output window are dispatched to the
+    /// configured direct or universal asynchronous receiver-transmitter device model instead of
+    /// mutating the backing array.
     pub fn write_memory_word(
         &mut self,
         address: Address,
@@ -246,9 +319,9 @@ impl<I: ForthIo> ForthVm<I> {
 
     /// Read one little-endian [`Cell`] from virtual memory.
     ///
-    /// Non-I/O cell reads must be aligned to [`CELL_ALIGN`]. In memory-mapped I/O builds, cell
-    /// reads from the MMIO window are dispatched as I/O reads and may target byte-wide device
-    /// registers at unaligned addresses.
+    /// Non-input/output cell reads must be aligned to [`CELL_ALIGN`]. In memory-mapped
+    /// input/output builds, cell reads from the input/output window are dispatched as input/output
+    /// reads and may target byte-wide device registers at unaligned addresses.
     pub fn read_cell(&mut self, address: Address) -> Result<Cell, VmError> {
         #[cfg(not(feature = "vm-port-io"))]
         if is_mmio_address(address) {
@@ -263,9 +336,9 @@ impl<I: ForthIo> ForthVm<I> {
 
     /// Write one little-endian [`Cell`] to virtual memory.
     ///
-    /// Non-I/O cell writes must be aligned to [`CELL_ALIGN`]. In memory-mapped I/O builds, cell
-    /// writes to the MMIO window are dispatched as I/O writes and may target byte-wide device
-    /// registers at unaligned addresses.
+    /// Non-input/output cell writes must be aligned to [`CELL_ALIGN`]. In memory-mapped
+    /// input/output builds, cell writes to the input/output window are dispatched as input/output
+    /// writes and may target byte-wide device registers at unaligned addresses.
     pub fn write_cell(&mut self, address: Address, value: Cell) -> Result<(), VmError> {
         #[cfg(not(feature = "vm-port-io"))]
         if is_mmio_address(address) {
@@ -278,32 +351,60 @@ impl<I: ForthIo> ForthVm<I> {
         Ok(())
     }
 
-    /// Push a cell onto the data stack.
+    /// Read an address stored in one dictionary or threaded-code cell.
     ///
-    /// The value is written into VM memory and `sp` is moved downward by [`CELL_SIZE`].
+    /// This helper converts the cell payload into the VM's address type after the underlying cell
+    /// read succeeds.
+    pub fn read_address(&mut self, address: Address) -> Result<Address, VmError> {
+        let value = self.read_cell(address)?;
+        value.try_into().map_err(|_| VmError::InvalidAddress)
+    }
+
+    /// Write an address into one dictionary or threaded-code cell.
+    pub fn write_address(&mut self, address: Address, value: Address) -> Result<(), VmError> {
+        self.write_cell(address, Cell::from(value))
+    }
+
+    /// Push a cell onto the data stack.
     pub fn push_data(&mut self, value: Cell) -> Result<(), VmError> {
         self.push_stack(StackKind::Data, value)
     }
 
     /// Pop a cell from the data stack.
-    ///
-    /// The value is read from VM memory, and `sp` is moved upward by [`CELL_SIZE`].
     pub fn pop_data(&mut self) -> Result<Cell, VmError> {
         self.pop_stack(StackKind::Data)
     }
 
+    /// Peek at the top cell on the data stack without changing the stack pointer.
+    pub fn peek_data(&mut self) -> Result<Cell, VmError> {
+        if self.sp == DATA_STACK_BASE {
+            return Err(VmError::StackUnderflow(StackKind::Data));
+        }
+        self.read_cell(self.sp)
+    }
+
     /// Push a cell onto the return stack.
-    ///
-    /// The value is written into VM memory, and `rp` is moved upward by [`CELL_SIZE`].
     pub fn push_return(&mut self, value: Cell) -> Result<(), VmError> {
         self.push_stack(StackKind::Return, value)
     }
 
     /// Pop a cell from the return stack.
-    ///
-    /// `rp` is moved downward by [`CELL_SIZE`], and then the value is read from VM memory.
     pub fn pop_return(&mut self) -> Result<Cell, VmError> {
         self.pop_stack(StackKind::Return)
+    }
+
+    /// Reset the return stack pointer to its base.
+    pub fn reset_return_stack(&mut self) {
+        self.rp = RETURN_STACK_BASE;
+    }
+
+    /// Reset the outer-interpreter observable state used by `QUIT`.
+    ///
+    /// This helper does not itself request control transfer; it only restores the input parsing and
+    /// interpreter-mode state that `QUIT` expects.
+    pub fn reset_outer_interpreter_state(&mut self) {
+        self.state = InterpreterState::Interpreting;
+        self.input_pos = 0;
     }
 
     /// Push a cell onto the selected stack using the VM's shared stack arena rules.
@@ -358,9 +459,6 @@ impl<I: ForthIo> ForthVm<I> {
     }
 
     /// Load bytes into the terminal input buffer.
-    ///
-    /// Existing TIB bytes beyond the new input length are left untouched; `tib_len` and
-    /// `input_pos` define the active input range.
     pub fn load_tib(&mut self, input: &[MemoryWord]) -> Result<(), VmError> {
         if input.len() > TIB_SIZE {
             return Err(VmError::TibOverflow);
@@ -374,6 +472,63 @@ impl<I: ForthIo> ForthVm<I> {
         Ok(())
     }
 
+    /// Append one byte to the active terminal input buffer line.
+    ///
+    /// The byte is written at the current end of the terminal input buffer. Newline handling is
+    /// left to the outer interpreter; callers should only append bytes that belong to the current
+    /// line content.
+    pub fn append_tib_byte(&mut self, byte: MemoryWord) -> Result<(), VmError> {
+        if self.tib_len >= TIB_SIZE {
+            return Err(VmError::TibOverflow);
+        }
+
+        let addr = self
+            .tib_start
+            .checked_add(self.tib_len as Address)
+            .ok_or(VmError::TibOverflow)?;
+        self.write_memory_word(addr, byte)?;
+        self.tib_len += 1;
+        Ok(())
+    }
+
+    /// Copy the next whitespace-delimited terminal input word into `scratch`.
+    ///
+    /// Parsing starts at the current `>IN` offset and advances `input_pos` past the returned word.
+    /// The returned slice borrows from `scratch`, not from VM memory, so callers may execute words
+    /// immediately after this method returns without holding a borrow into the VM.
+    pub fn next_tib_word<'a, const N: usize>(
+        &mut self,
+        scratch: &'a mut [MemoryWord; N],
+    ) -> Result<Option<&'a [MemoryWord]>, VmError> {
+        let start = address_index(self.tib_start);
+        let end = start + self.tib_len;
+        let tib = &self.memory[start..end];
+        let mut pos = self.input_pos;
+
+        while pos < tib.len() && tib[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        if pos == tib.len() {
+            self.input_pos = pos;
+            return Ok(None);
+        }
+
+        let token_start = pos;
+        while pos < tib.len() && !tib[pos].is_ascii_whitespace() {
+            pos += 1;
+        }
+
+        let token_len = pos - token_start;
+        if token_len > scratch.len() {
+            return Err(VmError::TibOverflow);
+        }
+
+        scratch[..token_len].copy_from_slice(&tib[token_start..pos]);
+        self.input_pos = pos;
+        Ok(Some(&scratch[..token_len]))
+    }
+
     /// Mark the terminal input buffer as empty and reset the parse offset.
     pub fn reset_tib(&mut self) {
         self.tib_len = 0;
@@ -382,25 +537,263 @@ impl<I: ForthIo> ForthVm<I> {
 
     /// Reserve dictionary space and return the starting address.
     ///
-    /// This only advances `here`; callers are responsible for writing compiled bytes into the
-    /// returned range.
+    /// This advances the compiler pointer register `p`.
     pub fn allot(&mut self, bytes: usize) -> Result<Address, VmError> {
-        let start = self.here;
+        let start = self.p;
         let next = address_index(start)
             .checked_add(bytes)
             .ok_or(VmError::DictionaryOverflow)?;
         if next > address_index(TIB_START) {
             return Err(VmError::DictionaryOverflow);
         }
-        self.here = next.try_into().map_err(|_| VmError::DictionaryOverflow)?;
+        self.p = next.try_into().map_err(|_| VmError::DictionaryOverflow)?;
         Ok(start)
     }
 
-    #[cfg(feature = "vm-port-io")]
-    /// Read a cell from an I/O port.
+    /// Align the compiler pointer up to the next cell boundary.
+    pub fn align_dictionary(&mut self) -> Result<(), VmError> {
+        let aligned = align_up(address_index(self.p), CELL_ALIGN);
+        if aligned > address_index(TIB_START) {
+            return Err(VmError::DictionaryOverflow);
+        }
+        self.p = aligned
+            .try_into()
+            .map_err(|_| VmError::DictionaryOverflow)?;
+        Ok(())
+    }
+
+    /// Install a primitive word into the dictionary and return its execution token (XT).
     ///
-    /// This method exists only when the `vm-port-io` feature is enabled. With `vm-uart`, ports are
-    /// interpreted as UART registers; otherwise they use the direct port model.
+    /// The execution token is the header address that threaded code stores for later dispatch.
+    pub fn install_primitive_word(
+        &mut self,
+        name: &str,
+        primitive: Primitive,
+        flags: MemoryWord,
+    ) -> Result<Address, VmError> {
+        let entry = self.begin_dictionary_entry(name, flags | WORD_FLAG_PRIMITIVE)?;
+        self.write_cell(entry.cfa, primitive.code_field())?;
+        self.finish_dictionary_entry(entry.pfa)?;
+        Ok(entry.xt)
+    }
+
+    /// Install a colon word into the dictionary and return its execution token (XT).
+    ///
+    /// The supplied body is written verbatim into the parameter field as threaded cells.
+    pub fn install_colon_word(
+        &mut self,
+        name: &str,
+        body: &[Cell],
+        flags: MemoryWord,
+    ) -> Result<Address, VmError> {
+        let entry = self.begin_dictionary_entry(name, flags)?;
+        let body_bytes = body
+            .len()
+            .checked_mul(CELL_SIZE)
+            .ok_or(VmError::DictionaryOverflow)?;
+        ensure_dictionary_write_fits(address_index(entry.pfa), body_bytes)?;
+        self.write_cell(entry.cfa, DOCOL_CODE_FIELD)?;
+        let mut cursor = entry.pfa;
+        for cell in body {
+            self.write_cell(cursor, *cell)?;
+            cursor = cursor
+                .checked_add(CELL_SIZE as Address)
+                .ok_or(VmError::DictionaryOverflow)?;
+        }
+        self.finish_dictionary_entry(cursor)?;
+        Ok(entry.xt)
+    }
+
+    /// Read dictionary metadata for a word given its execution token (XT).
+    ///
+    /// The execution token is the start address of the dictionary header in this VM.
+    pub fn dictionary_entry(&mut self, xt: Address) -> Result<DictionaryEntry, VmError> {
+        let flags_addr = xt
+            .checked_add(DICTIONARY_FLAGS_OFFSET as Address)
+            .ok_or(VmError::InvalidAddress)?;
+        let name_len_addr = xt
+            .checked_add(DICTIONARY_NAME_LENGTH_OFFSET as Address)
+            .ok_or(VmError::InvalidAddress)?;
+        let name_len = self.read_memory_word(name_len_addr)?;
+        let cfa_offset = aligned_code_field_offset(name_len as usize)?;
+        let cfa = xt
+            .checked_add(cfa_offset as Address)
+            .ok_or(VmError::InvalidAddress)?;
+        let pfa = cfa
+            .checked_add(CELL_SIZE as Address)
+            .ok_or(VmError::InvalidAddress)?;
+        Ok(DictionaryEntry {
+            xt,
+            link_addr: xt
+                .checked_add(DICTIONARY_LINK_OFFSET as Address)
+                .ok_or(VmError::InvalidAddress)?,
+            cfa,
+            pfa,
+            flags: self.read_memory_word(flags_addr)?,
+            name_len,
+        })
+    }
+
+    /// Find the most recent dictionary word whose name matches the supplied ASCII token.
+    pub fn find_word(&mut self, target_name: &[u8]) -> Result<Option<Address>, VmError> {
+        let mut cursor = self.latest;
+
+        while cursor != NO_ADDRESS {
+            if self.word_name_matches(cursor, target_name)? {
+                return Ok(Some(cursor));
+            }
+
+            let entry = self.dictionary_entry(cursor)?;
+            cursor = self.read_address(entry.link_addr)?;
+        }
+
+        Ok(None)
+    }
+
+    /// Execute the next word in the current threaded code stream.
+    ///
+    /// This mirrors the traditional `NEXT` inner-interpreter step, so it intentionally keeps the
+    /// conventional name even though it is not an iterator method.
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Result<Control, VmError> {
+        let next_xt = self.read_address(self.ip)?;
+        self.ip = self
+            .ip
+            .checked_add(CELL_SIZE as Address)
+            .ok_or(VmError::InvalidAddress)?;
+        self.w = next_xt;
+        self.execute_current()
+    }
+
+    /// Execute the word referenced by the current work register.
+    ///
+    /// The work register holds the current execution token while the code field determines whether
+    /// the word is a primitive or a colon definition.
+    pub fn execute_current(&mut self) -> Result<Control, VmError> {
+        let entry = self.dictionary_entry(self.w)?;
+        let code_field = self.read_cell(entry.cfa)?;
+        if code_field == DOCOL_CODE_FIELD {
+            return Primitive::Docol.execute(self);
+        }
+        let primitive = Primitive::from_code_field(code_field).ok_or(VmError::UnknownPrimitive)?;
+        primitive.execute(self)
+    }
+
+    /// Execute a word until it completes or requests a non-local outer-interpreter transfer.
+    ///
+    /// A return value of [`Control::Continue`] means the word ran to ordinary completion. Other
+    /// control values are propagated to the outer interpreter.
+    pub fn run_word(&mut self, xt: Address) -> Result<Control, VmError> {
+        self.ip = NO_ADDRESS;
+        self.w = xt;
+        let mut control = self.execute_current()?;
+        if control != Control::Continue {
+            return Ok(control);
+        }
+
+        while self.ip != NO_ADDRESS {
+            control = self.next()?;
+            if control != Control::Continue {
+                return Ok(control);
+            }
+        }
+
+        self.w = NO_ADDRESS;
+        Ok(Control::Continue)
+    }
+
+    /// Begin encoding one dictionary header and return the derived entry metadata.
+    fn begin_dictionary_entry(
+        &mut self,
+        name: &str,
+        flags: MemoryWord,
+    ) -> Result<DictionaryEntry, VmError> {
+        if name.len() > MemoryWord::MAX as usize {
+            return Err(VmError::DictionaryOverflow);
+        }
+
+        let xt = self.p;
+        let cfa_offset = aligned_code_field_offset(name.len())?;
+        let cfa_index = address_index(xt)
+            .checked_add(cfa_offset)
+            .ok_or(VmError::DictionaryOverflow)?;
+        let pfa_index = cfa_index
+            .checked_add(CELL_SIZE)
+            .ok_or(VmError::DictionaryOverflow)?;
+        ensure_dictionary_write_fits(address_index(xt), pfa_index - address_index(xt))?;
+        let link_addr = xt;
+        self.write_address(link_addr, self.latest)?;
+        self.write_memory_word(
+            xt.checked_add(DICTIONARY_FLAGS_OFFSET as Address)
+                .ok_or(VmError::InvalidAddress)?,
+            flags,
+        )?;
+        self.write_memory_word(
+            xt.checked_add(DICTIONARY_NAME_LENGTH_OFFSET as Address)
+                .ok_or(VmError::InvalidAddress)?,
+            name.len() as MemoryWord,
+        )?;
+
+        let name_start = xt
+            .checked_add(DICTIONARY_NAME_BYTES_OFFSET as Address)
+            .ok_or(VmError::InvalidAddress)?;
+        for (index, byte) in name.as_bytes().iter().enumerate() {
+            let addr = name_start
+                .checked_add(index as Address)
+                .ok_or(VmError::InvalidAddress)?;
+            self.write_memory_word(addr, *byte)?;
+        }
+
+        let cfa = xt
+            .checked_add(cfa_offset as Address)
+            .ok_or(VmError::InvalidAddress)?;
+        let pfa = cfa
+            .checked_add(CELL_SIZE as Address)
+            .ok_or(VmError::InvalidAddress)?;
+
+        Ok(DictionaryEntry {
+            xt,
+            link_addr,
+            cfa,
+            pfa,
+            flags,
+            name_len: name.len() as MemoryWord,
+        })
+    }
+
+    /// Finalize one dictionary entry by advancing the compiler pointer and the latest link.
+    fn finish_dictionary_entry(&mut self, next_p: Address) -> Result<(), VmError> {
+        if next_p as usize > address_index(TIB_START) {
+            return Err(VmError::DictionaryOverflow);
+        }
+        self.latest = self.p;
+        self.p = next_p;
+        Ok(())
+    }
+
+    /// Compare a dictionary name to an ASCII token using case-insensitive matching.
+    fn word_name_matches(&mut self, xt: Address, target_name: &[u8]) -> Result<bool, VmError> {
+        let entry = self.dictionary_entry(xt)?;
+        if usize::from(entry.name_len) != target_name.len() {
+            return Ok(false);
+        }
+
+        for (offset, expected_byte) in target_name.iter().enumerate() {
+            let addr = xt
+                .checked_add(DICTIONARY_NAME_BYTES_OFFSET as Address)
+                .and_then(|start| start.checked_add(offset as Address))
+                .ok_or(VmError::InvalidAddress)?;
+            let actual_byte = self.read_memory_word(addr)?;
+            if !actual_byte.eq_ignore_ascii_case(expected_byte) {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Read a cell from an input/output port.
+    #[cfg(feature = "vm-port-io")]
     pub fn port_in(&mut self, port: Address) -> Cell {
         #[cfg(feature = "vm-uart")]
         {
@@ -413,11 +806,8 @@ impl<I: ForthIo> ForthVm<I> {
         }
     }
 
+    /// Write a cell to an input/output port.
     #[cfg(feature = "vm-port-io")]
-    /// Write a cell to an I/O port.
-    ///
-    /// This method exists only when the `vm-port-io` feature is enabled. With `vm-uart`, ports are
-    /// interpreted as UART registers; otherwise they use the direct port model.
     pub fn port_out(&mut self, port: Address, value: Cell) {
         #[cfg(feature = "vm-uart")]
         {
@@ -526,7 +916,7 @@ pub const fn address_index(address: Address) -> usize {
     address as usize
 }
 
-/// Return whether an address falls inside the memory-mapped I/O window.
+/// Return whether an address falls inside the memory-mapped input/output window.
 pub const fn is_mmio_address(address: Address) -> bool {
     address as usize >= MMIO_BASE as usize && (address as usize) < MMIO_END
 }
@@ -536,6 +926,32 @@ pub const fn cell_aligned(address: Address) -> bool {
     (address as usize).is_multiple_of(CELL_ALIGN)
 }
 
+/// Round an index up to the next multiple of `alignment`.
+pub const fn align_up(index: usize, alignment: usize) -> usize {
+    index.next_multiple_of(alignment)
+}
+
+/// Return the aligned offset, from the start of a dictionary entry, of the code field address
+/// (CFA).
+pub fn aligned_code_field_offset(name_len: usize) -> Result<usize, VmError> {
+    let offset = DICTIONARY_NAME_BYTES_OFFSET
+        .checked_add(name_len)
+        .ok_or(VmError::DictionaryOverflow)?;
+    Ok(align_up(offset, CELL_ALIGN))
+}
+
+/// Reject dictionary writes that would reach into the terminal input buffer region.
+fn ensure_dictionary_write_fits(start: usize, bytes: usize) -> Result<(), VmError> {
+    let end = start
+        .checked_add(bytes)
+        .ok_or(VmError::DictionaryOverflow)?;
+    if end > address_index(TIB_START) {
+        return Err(VmError::DictionaryOverflow);
+    }
+    Ok(())
+}
+
+/// Validate a cell access address and return the backing-memory slice start index.
 fn checked_cell_start(address: Address) -> Result<usize, VmError> {
     if !cell_aligned(address) {
         return Err(VmError::UnalignedCell);

@@ -4,6 +4,34 @@ This changelog was reconstructed from the Git history. Minor versions track func
 the interpreter; test- and CI-only changes are recorded as maintenance notes without consuming a
 minor version.
 
+## 0.8.0 - 2026-04-24
+
+- Added the stage-zero `BYE` word so the outer interpreter can terminate cleanly instead of only
+  resetting to the top-level prompt.
+- Kept `QUIT` as the classic outer-interpreter reset word and clarified the distinction between
+  `QUIT` and `BYE` in tests and runner behavior.
+- Added runner and VM tests covering `BYE` process-exit behavior.
+
+## 0.7.0 - 2026-04-24
+
+- Connected the top-level runner to the stage-zero dictionary, so parsed input tokens are now looked
+  up and executed instead of being echoed back as a token list.
+- Added line-level outer-interpreter behavior for successful execution, unknown-word reporting, and
+  `QUIT` abandoning the rest of the current input line.
+- Added runner integration tests covering unknown-word reporting, `QUIT` line handling, and
+  runner-driven `KEY` / `EMIT` execution.
+
+## 0.6.0 - 2026-04-24
+
+- Added the classic irreducible stage-zero word set: `NEXT`, `DOCOL`, `DOSEMI`, `LIT`,
+  `BRANCH`, `0BRANCH`, `QUIT`, `DUP`, `DROP`, `SWAP`, `@`, `!`, `C@`, `C!`, `KEY`, and `EMIT`.
+- Added a `words/` module with grouped submodules for inner-interpreter, control, stack, memory,
+  and input/output primitives.
+- Added explicit virtual machine `W` work-register and `P` compile-pointer state, plus
+  dictionary-entry helpers and threaded word execution.
+- Added tests covering stage-zero word installation, colon-definition execution, stack words,
+  memory words, input/output words, and `QUIT`.
+
 ## 0.5.0 - 2026-04-22
 
 - Added a typed flat-memory Forth VM with `MemoryWord`, `Cell`, `Address`, and address-derived

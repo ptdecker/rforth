@@ -9,8 +9,11 @@ the `embedded` Cargo feature flag.
 
 ## Status
 
-Early scaffolding. The interpreter prints `OK` on startup and echoes every keystroke — the I/O
-layer and syscall wrappers are in place; the Forth engine itself is not yet implemented.
+Early implementation. The reusable virtual machine now installs the classic irreducible stage-zero
+core: threaded inner-interpreter words, `QUIT`, `BYE`, basic stack and memory primitives, and
+`KEY` / `EMIT`. The top-level runner now tokenizes each completed input line, looks up installed
+words in the dictionary, executes recognized stage-zero words, reports unknown words, returns to an
+`OK` prompt after successful lines, and exits cleanly on `BYE`.
 
 ## Building and running
 
@@ -26,8 +29,8 @@ scripts/check-all-vm-variants.sh  # format, test, and lint all VM variants
 
 Tests are host-side Rust tests that exercise the reusable library crate. The tokenizer tests cover
 allocation-free word parsing, capacity handling, and `WordVec` behavior. The interpreter tests use a
-scripted `ForthIo` implementation to drive the core input loop without touching the terminal or raw
-syscalls.
+scripted `ForthIo` implementation to drive both the outer interpreter loop and the stage-zero
+virtual machine words without touching the terminal or raw syscalls.
 
 Run the full test suite with:
 
@@ -85,6 +88,7 @@ main.rs         — no_std / no_main entry point; constructs SystemIo and calls 
 io/             — ForthIo trait + SystemIo struct; platform impls in unix_io.rs / embedded_io.rs
 sys/            — SysCalls trait + raw syscall wrappers; unix_sys.rs / embedded_sys.rs
 vm.rs           — flat-memory Forth VM state, stacks, memory access, and I/O dispatch
+words/          — stage-zero word registration and grouped primitive implementations
 ```
 
 The interpreter core (`run_forth`) is platform-agnostic and communicates with the outside world
@@ -97,7 +101,9 @@ construction and restores the original terminal settings automatically when it i
 The VM uses typed aliases for `MemoryWord`, `Cell`, and `Address`; `MEMORY_SIZE` is derived from
 the address type. All VM layout and I/O values are named constants. The default VM profile is
 direct memory-mapped I/O; `vm-uart`, `vm-port-io`, and their combination selects the alternate UART
-and port-mapped models.
+and port-mapped models. The stage-zero engine installs dictionary-resident primitive words and can
+execute colon definitions through the inner interpreter using the instruction pointer (`IP`), work
+register (`W`), and compile pointer (`P`) machine state.
 
 ## Wiki
 
