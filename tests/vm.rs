@@ -126,12 +126,20 @@ fn initializes_vm_layout() {
     let vm = ForthVm::new(io);
 
     assert_eq!(
-        vm.here, DICTIONARY_START,
-        "dictionary pointer should start at DICTIONARY_START"
+        vm.p, DICTIONARY_START,
+        "compile pointer should start at DICTIONARY_START"
     );
     assert_eq!(
-        vm.ip, DICTIONARY_START,
-        "instruction pointer should start at DICTIONARY_START"
+        vm.ip, NO_ADDRESS,
+        "instruction pointer should start invalid until threaded execution begins"
+    );
+    assert_eq!(
+        vm.w, NO_ADDRESS,
+        "work register should start invalid until a word is dispatched"
+    );
+    assert_eq!(
+        vm.latest, NO_ADDRESS,
+        "latest dictionary link should start invalid while the dictionary is empty"
     );
     assert_eq!(
         vm.sp, DATA_STACK_BASE,
@@ -387,7 +395,91 @@ fn tib_load_rejects_oversized_input() {
     );
 }
 
-/// Verifies dictionary allocation advances `here` and stops before the TIB region.
+/// Verifies appending terminal input bytes grows the active line in VM memory.
+#[test]
+fn append_tib_byte_writes_into_vm_memory_and_advances_length() {
+    let io = ScriptedIo::new(b"");
+    let mut vm = ForthVm::new(io);
+
+    vm.append_tib_byte(b'A')
+        .expect("appending the first TIB byte should succeed");
+    vm.append_tib_byte(b'B')
+        .expect("appending the second TIB byte should succeed");
+
+    assert_eq!(
+        &vm.memory()[TIB_START as usize..TIB_START as usize + 2],
+        b"AB",
+        "append_tib_byte should write each appended byte at the current end of the terminal input buffer"
+    );
+    assert_eq!(
+        vm.tib_len, 2,
+        "append_tib_byte should increment the active TIB length for each accepted byte"
+    );
+    assert_eq!(
+        vm.input_pos, 0,
+        "append_tib_byte should leave the parse offset unchanged while the line is still being accumulated"
+    );
+}
+
+/// Verifies appending past terminal input buffer capacity is rejected.
+#[test]
+fn append_tib_byte_rejects_input_past_capacity() {
+    let io = ScriptedIo::new(b"");
+    let mut vm = ForthVm::new(io);
+
+    for _ in 0..TIB_SIZE {
+        vm.append_tib_byte(b'X')
+            .expect("filling the terminal input buffer exactly to capacity should succeed");
+    }
+
+    assert_eq!(
+        vm.append_tib_byte(b'Y'),
+        Err(VmError::TibOverflow),
+        "append_tib_byte should reject the first byte that would exceed TIB_SIZE"
+    );
+    assert_eq!(
+        vm.tib_len, TIB_SIZE,
+        "append_tib_byte should leave the terminal input buffer length at capacity after overflow"
+    );
+}
+
+/// Verifies terminal input words can be copied into scratch storage one token at a time.
+#[test]
+fn next_tib_word_copies_tokens_into_scratch_and_advances_input_pos() {
+    let io = ScriptedIo::new(b"");
+    let mut vm = ForthVm::new(io);
+    let mut scratch = [0u8; TIB_SIZE];
+
+    vm.load_tib(b"  DUP   SWAP  ")
+        .expect("loading a test terminal input buffer should succeed");
+
+    let first = vm
+        .next_tib_word(&mut scratch)
+        .expect("reading the first TIB word should succeed")
+        .expect("the first TIB word should exist");
+    assert_eq!(
+        first, b"DUP",
+        "next_tib_word should skip leading whitespace and copy the first token into scratch"
+    );
+
+    let second = vm
+        .next_tib_word(&mut scratch)
+        .expect("reading the second TIB word should succeed")
+        .expect("the second TIB word should exist");
+    assert_eq!(
+        second, b"SWAP",
+        "next_tib_word should copy the next token and advance the terminal input parse offset"
+    );
+
+    assert_eq!(
+        vm.next_tib_word(&mut scratch)
+            .expect("reading past the final token should succeed"),
+        None,
+        "next_tib_word should return None once the terminal input buffer contains no more words"
+    );
+}
+
+/// Verifies dictionary allocation advances `p` and stops before the TIB region.
 #[test]
 fn allot_advances_dictionary_and_detects_tib_collision() {
     let io = ScriptedIo::new(b"");
@@ -399,9 +491,9 @@ fn allot_advances_dictionary_and_detects_tib_collision() {
         "first allot should return the initial dictionary address"
     );
     assert_eq!(
-        vm.here,
+        vm.p,
         DICTIONARY_START + CELL_SIZE as Address,
-        "allot should advance here by the requested byte count"
+        "allot should advance the compile pointer by the requested byte count"
     );
 
     assert_eq!(
@@ -423,8 +515,8 @@ fn allot_rejects_address_arithmetic_overflow() {
         "allot should reject byte counts that overflow address arithmetic"
     );
     assert_eq!(
-        vm.here, DICTIONARY_START,
-        "failed allot should leave the dictionary pointer unchanged"
+        vm.p, DICTIONARY_START,
+        "failed allot should leave the compile pointer unchanged"
     );
 }
 
