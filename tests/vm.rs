@@ -7,6 +7,7 @@ use core::mem::size_of;
 
 use rforth::io::ForthIo;
 use rforth::vm::*;
+use rforth::words::Primitive;
 
 /// Input byte used by memory-mapped I/O tests.
 #[cfg(not(feature = "vm-port-io"))]
@@ -517,6 +518,70 @@ fn allot_rejects_address_arithmetic_overflow() {
     assert_eq!(
         vm.p, DICTIONARY_START,
         "failed allot should leave the compile pointer unchanged"
+    );
+}
+
+/// Verifies dictionary alignment may advance exactly to the terminal input buffer boundary without
+/// crossing it.
+#[test]
+fn align_dictionary_can_advance_to_the_tib_boundary() {
+    let io = ScriptedIo::new(b"");
+    let mut vm = ForthVm::new(io);
+    vm.p = TIB_START - 1;
+
+    vm.align_dictionary()
+        .expect("align_dictionary should allow alignment to the exact TIB boundary");
+    assert_eq!(
+        vm.p, TIB_START,
+        "align_dictionary should stop at the exact TIB boundary because that address is already cell-aligned"
+    );
+}
+
+/// Verifies primitive installation fails cleanly when the header would overlap the terminal input
+/// buffer.
+#[test]
+fn install_primitive_word_rejects_headers_that_would_reach_the_tib() {
+    let io = ScriptedIo::new(b"");
+    let mut vm = ForthVm::new(io);
+    vm.p = TIB_START - 1;
+
+    assert_eq!(
+        vm.install_primitive_word("X", Primitive::Dup, 0),
+        Err(VmError::DictionaryOverflow),
+        "install_primitive_word should reject headers that cannot fit before the TIB"
+    );
+    assert_eq!(
+        vm.p,
+        TIB_START - 1,
+        "failed primitive installation should leave the compile pointer unchanged"
+    );
+    assert_eq!(
+        vm.latest, NO_ADDRESS,
+        "failed primitive installation should not update the latest dictionary link"
+    );
+}
+
+/// Verifies colon installation fails cleanly when the threaded body would overlap the terminal
+/// input buffer.
+#[test]
+fn install_colon_word_rejects_bodies_that_would_reach_the_tib() {
+    let io = ScriptedIo::new(b"");
+    let mut vm = ForthVm::new(io);
+    vm.p = TIB_START - CELL_SIZE as Address;
+
+    assert_eq!(
+        vm.install_colon_word("X", &[FIRST_CELL], 0),
+        Err(VmError::DictionaryOverflow),
+        "install_colon_word should reject bodies that would extend into the TIB"
+    );
+    assert_eq!(
+        vm.p,
+        TIB_START - CELL_SIZE as Address,
+        "failed colon installation should leave the compile pointer unchanged"
+    );
+    assert_eq!(
+        vm.latest, NO_ADDRESS,
+        "failed colon installation should not update the latest dictionary link"
     );
 }
 

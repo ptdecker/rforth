@@ -552,7 +552,11 @@ impl<I: ForthIo> ForthVm<I> {
 
     /// Align the compiler pointer up to the next cell boundary.
     pub fn align_dictionary(&mut self) -> Result<(), VmError> {
-        self.p = align_up(address_index(self.p), CELL_ALIGN)
+        let aligned = align_up(address_index(self.p), CELL_ALIGN);
+        if aligned > address_index(TIB_START) {
+            return Err(VmError::DictionaryOverflow);
+        }
+        self.p = aligned
             .try_into()
             .map_err(|_| VmError::DictionaryOverflow)?;
         Ok(())
@@ -583,6 +587,11 @@ impl<I: ForthIo> ForthVm<I> {
         flags: MemoryWord,
     ) -> Result<Address, VmError> {
         let entry = self.begin_dictionary_entry(name, flags)?;
+        let body_bytes = body
+            .len()
+            .checked_mul(CELL_SIZE)
+            .ok_or(VmError::DictionaryOverflow)?;
+        ensure_dictionary_write_fits(address_index(entry.pfa), body_bytes)?;
         self.write_cell(entry.cfa, DOCOL_CODE_FIELD)?;
         let mut cursor = entry.pfa;
         for cell in body {
@@ -704,6 +713,14 @@ impl<I: ForthIo> ForthVm<I> {
         }
 
         let xt = self.p;
+        let cfa_offset = aligned_code_field_offset(name.len())?;
+        let cfa_index = address_index(xt)
+            .checked_add(cfa_offset)
+            .ok_or(VmError::DictionaryOverflow)?;
+        let pfa_index = cfa_index
+            .checked_add(CELL_SIZE)
+            .ok_or(VmError::DictionaryOverflow)?;
+        ensure_dictionary_write_fits(address_index(xt), pfa_index - address_index(xt))?;
         let link_addr = xt;
         self.write_address(link_addr, self.latest)?;
         self.write_memory_word(
@@ -727,7 +744,6 @@ impl<I: ForthIo> ForthVm<I> {
             self.write_memory_word(addr, *byte)?;
         }
 
-        let cfa_offset = aligned_code_field_offset(name.len())?;
         let cfa = xt
             .checked_add(cfa_offset as Address)
             .ok_or(VmError::InvalidAddress)?;
@@ -922,6 +938,17 @@ pub fn aligned_code_field_offset(name_len: usize) -> Result<usize, VmError> {
         .checked_add(name_len)
         .ok_or(VmError::DictionaryOverflow)?;
     Ok(align_up(offset, CELL_ALIGN))
+}
+
+/// Reject dictionary writes that would reach into the terminal input buffer region.
+fn ensure_dictionary_write_fits(start: usize, bytes: usize) -> Result<(), VmError> {
+    let end = start
+        .checked_add(bytes)
+        .ok_or(VmError::DictionaryOverflow)?;
+    if end > address_index(TIB_START) {
+        return Err(VmError::DictionaryOverflow);
+    }
+    Ok(())
 }
 
 /// Validate a cell access address and return the backing-memory slice start index.

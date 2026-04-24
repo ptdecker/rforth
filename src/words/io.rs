@@ -54,18 +54,19 @@ pub(crate) fn execute_key<I: ForthIo>(vm: &mut ForthVm<I>) -> Result<Control, Vm
 /// Execute `EMIT` by writing the low byte of the top cell through the active VM output model.
 pub(crate) fn execute_emit<I: ForthIo>(vm: &mut ForthVm<I>) -> Result<Control, VmError> {
     let value = vm.pop_data()?;
-    write_output(vm, value);
+    write_output(vm, value)?;
     Ok(Control::Continue)
 }
 
 /// Write one output cell through the active port-based device model.
 #[cfg(feature = "vm-port-io")]
-fn write_output<I: ForthIo>(vm: &mut ForthVm<I>, value: Cell) {
+fn write_output<I: ForthIo>(vm: &mut ForthVm<I>, value: Cell) -> Result<(), VmError> {
     vm.port_out(ACTIVE_EMIT_PORT, value);
+    Ok(())
 }
 
 /// Write one output cell through the active memory-mapped device model.
 #[cfg(not(feature = "vm-port-io"))]
-fn write_output<I: ForthIo>(vm: &mut ForthVm<I>, value: Cell) {
-    let _ = vm.write_cell(ACTIVE_EMIT_ADDRESS, value);
+fn write_output<I: ForthIo>(vm: &mut ForthVm<I>, value: Cell) -> Result<(), VmError> {
+    vm.write_cell(ACTIVE_EMIT_ADDRESS, value)
 }
