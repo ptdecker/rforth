@@ -232,6 +232,109 @@ fn batch_mode_compiles_and_executes_a_colon_definition() {
     );
 }
 
+/// Verifies batch mode ignores backslash comments through the end of the current line.
+#[test]
+fn batch_mode_ignores_backslash_comments() {
+    let mut io = ScriptedIo::new(b"\\ ignored words\n2 .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(exit, 0, "a backslash comment should not fail batch input");
+    assert_eq!(
+        io.output.as_slice(),
+        b"2 ",
+        "source after the commented line should still execute normally"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "ignored backslash comment text should not emit diagnostics"
+    );
+}
+
+/// Verifies batch mode ignores whitespace-delimited parenthesized comments.
+#[test]
+fn batch_mode_ignores_parenthesized_comments() {
+    let mut io = ScriptedIo::new(b"1 ( ignored words ) .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 0,
+        "a complete parenthesized comment should not fail batch input"
+    );
+    assert_eq!(
+        io.output.as_slice(),
+        b"1 ",
+        "dot should see the value before the parenthesized comment"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "ignored parenthesized comment text should not emit diagnostics"
+    );
+}
+
+/// Verifies source comments are ignored while compiling a colon definition.
+#[test]
+fn comments_are_ignored_while_compiling() {
+    let mut io = ScriptedIo::new(b": ONE ( ignored words ) 1 ; ONE .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 0,
+        "comments inside a colon definition should not affect compilation"
+    );
+    assert_eq!(
+        io.output.as_slice(),
+        b"1 ",
+        "the compiled definition should execute only its real source tokens"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "ignored compile-time comment text should not emit diagnostics"
+    );
+}
+
+/// Verifies an unterminated parenthesized comment is treated as malformed source code
+#[test]
+fn batch_mode_reports_unterminated_parenthesized_comment() {
+    let mut io = ScriptedIo::new(b"1 ( missing terminator\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 1,
+        "an unterminated parenthesized comment should return the unknown-or-syntax exit code"
+    );
+    assert!(
+        io.output.is_empty(),
+        "unterminated comments should not emit normal output"
+    );
+    assert_eq!(
+        io.stderr.as_slice(),
+        b"invalid-source ?\n",
+        "batch mode should report unterminated comments as malformed source"
+    );
+}
+
+/// Verifies interactive backslash comments still echo input and print a fresh prompt.
+#[test]
+fn interactive_mode_ignores_backslash_comments() {
+    let mut io = ScriptedIo::new(b"\\ ignored words\n", true);
+
+    run_forth_steps(&mut io, b"\\ ignored words\n".len());
+
+    assert_eq!(
+        io.output.as_slice(),
+        b"OK\n\\ ignored words\nOK\n",
+        "interactive mode should echo the commented line and print the next prompt"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "ignored interactive comment text should not emit diagnostics"
+    );
+}
+
 /// Verifies batch mode rejects an unterminated definition at the end of input.
 #[test]
 fn batch_mode_reports_unexpected_eof_while_compiling() {

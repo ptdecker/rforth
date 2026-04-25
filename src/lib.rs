@@ -42,6 +42,15 @@ const EXIT_INTERNAL: i32 = 7;
 /// Dictionary lookup token used when compiling numeric literals.
 const LIT_WORD_NAME: &[u8] = b"LIT";
 
+/// Source token that starts a line comment.
+const LINE_COMMENT_WORD: &[u8] = b"\\";
+
+/// Source token that starts a parenthesized comment.
+const PAREN_COMMENT_START_WORD: &[u8] = b"(";
+
+/// Source token that ends a parenthesized comment.
+const PAREN_COMMENT_END_WORD: &[u8] = b")";
+
 /// ASCII Backspace byte produced by some terminals.
 const BACKSPACE_BYTE: u8 = 0x08;
 
@@ -265,6 +274,26 @@ fn process_line(
             }
         };
 
+        let starts_line_comment = token == LINE_COMMENT_WORD;
+        let starts_parenthesized_comment = token == PAREN_COMMENT_START_WORD;
+
+        if starts_line_comment {
+            break;
+        }
+
+        if starts_parenthesized_comment {
+            match skip_parenthesized_comment(vm, &mut scratch) {
+                Ok(()) => continue,
+                Err(error) => {
+                    let category = category_for_vm_error(error);
+                    emit_vm_error(&mut vm.io, error);
+                    vm.reset_tib();
+                    let code = finish_error(interactive, &mut vm.io, category, last_error);
+                    return if interactive { None } else { Some(code) };
+                }
+            }
+        }
+
         match interpret_token(vm, token) {
             Ok(Control::Continue) => {}
             Ok(Control::Quit) => {
@@ -307,6 +336,23 @@ fn process_line(
         emit_ok(&mut vm.io);
     }
     None
+}
+
+/// Skip source tokens until the end of a parenthesized comment
+///
+/// Stage-zero source comments are whitespace-tokenized, so `( comment )` is accepted while
+/// `(comment)` remains an ordinary token. An unterminated comment is malformed source code.
+fn skip_parenthesized_comment(
+    vm: &mut ForthVm<&mut impl ForthIo>,
+    scratch: &mut [u8; TIB_SIZE],
+) -> Result<(), VmError> {
+    loop {
+        match vm.next_tib_word(scratch)? {
+            Some(token) if token == PAREN_COMMENT_END_WORD => return Ok(()),
+            Some(_) => {}
+            None => return Err(VmError::InvalidSource),
+        }
+    }
 }
 
 /// Interpret or compile one token according to the current interpreter state

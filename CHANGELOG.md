@@ -22,6 +22,8 @@ minor version.
 - Added batch stdin mode with EOF handling, stdout/stderr separation, error-category-based Unix
   exit codes, and prompt/echo suppression for piped or redirected source input.
 - Added simple interactive Backspace/Delete handling for editing the end of the current input line.
+- Added basic source comments with `\` line comments and whitespace-delimited `( ... )`
+  parenthesized comments.
 - Added bootstrap words needed for a usable source REPL and self-test files, including `.`,
   `ABORT`, `?ABORT`, `+`, `-`, `=`, `0=`, and `OVER`.
 - Added a fixture-driven `.fth` batch self-test covering the implemented primitive substrate.

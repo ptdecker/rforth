@@ -18,6 +18,7 @@ compiler words `:` / `;`, and `KEY` / `EMIT` / `.`. The runner now supports:
 - simple interactive backspace/delete editing at the end of the current line
 - batch stdin mode for a piped or redirected Forth source
 - signed decimal literals and source-defined colon words
+- basic Forth source comments with `\` and whitespace-delimited `( ... )`
 - stderr diagnostics with nonzero Unix exit codes on batch failures
 
 ## Building and running
