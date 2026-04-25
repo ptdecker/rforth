@@ -35,7 +35,6 @@ pub trait SysCalls {
     ///
     /// Returns the number of bytes written, or a negative value on error (the raw `write(2)` return
     /// value). Short writes are possible but not currently retried.
-    //TODO: Check for short writes and retry
     ///
     /// # Safety
     ///

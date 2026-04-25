@@ -10,7 +10,7 @@ checksum = "e136bfa874086c78f34d6eba98c423fefe464ce57f38164d16893ba8ed358e70"
 
 [[package]]
 name = "rforth"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "libc",
 ]

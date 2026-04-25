@@ -1,6 +1,12 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(not(test), no_main)]
 
+//! `rforth` Unix binary entry point
+//!
+//! The library owns the interpreter and platform-agnostic execution loop. This binary supplies the
+//! minimal `no_std` process boundary for Unix: exported runtime symbols, a panic handler, terminal
+//! I/O construction, and the call into [`run_forth`].
+
 #[cfg(all(unix, not(test)))]
 use rforth::{io::SystemIo, run_forth};
 
@@ -12,8 +18,10 @@ use rforth::{io::SystemIo, run_forth};
 /// linker with this stub; the body aborts immediately to catch any surprise invocation during
 /// debugging.
 #[cfg(all(unix, not(test)))]
+// SAFETY: This intentionally exports the exact symbol name required by the linker.
 #[unsafe(no_mangle)]
 extern "C" fn rust_eh_personality() -> ! {
+    // SAFETY: `abort` has no preconditions and does not return.
     unsafe { libc::abort() }
 }
 
@@ -26,6 +34,7 @@ extern "C" fn rust_eh_personality() -> ! {
 #[cfg(all(unix, not(test)))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
+    // SAFETY: `abort` has no preconditions and does not return.
     unsafe { libc::abort() }
 }
 
@@ -39,6 +48,7 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 /// mode) and hands control to [`run_forth`].  The `#[cfg(unix)]` guard here mirrors the
 /// compile-time platform selection used throughout the codebase.
 #[cfg(all(unix, not(test)))]
+// SAFETY: This exports the process entry symbol expected by the C runtime.
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> i32 {
     let mut io = SystemIo::new();

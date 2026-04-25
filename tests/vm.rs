@@ -1,27 +1,53 @@
-//! VM behavior tests across the supported I/O feature combinations.
+//! VM behavior tests across the supported I/O feature combinations
 //!
 //! These tests verify the flat memory layout, type-derived sizing, stack-in-memory behavior,
 //! terminal input buffer handling, and the selected direct/UART MMIO or port I/O dispatch model.
 
 use core::mem::size_of;
 
-use rforth::io::ForthIo;
-use rforth::vm::*;
-use rforth::words::Primitive;
+mod common;
 
-/// Input byte used by memory-mapped I/O tests.
+use common::ScriptedIo;
+use rforth::{
+    vm::{
+        Address, CELL_ALIGN, CELL_SIZE, Cell, DATA_STACK_BASE, DICTIONARY_START, ForthVm,
+        IO_REGION_BASE, IO_REGION_END, IO_REGION_SIZE, InterpreterState, MEMORY_SIZE, MemoryWord,
+        NO_ADDRESS, RETURN_STACK_BASE, StackKind, TIB_END, TIB_SIZE, TIB_START, VmError,
+        address_index,
+    },
+    words::Primitive,
+};
+
+#[cfg(all(not(feature = "vm-port-io"), not(feature = "vm-uart")))]
+use rforth::vm::{
+    DIRECT_MMIO_EMIT_ADDR, DIRECT_MMIO_KEY_ADDR, DIRECT_MMIO_KEY_READY_ADDR, KEY_READY,
+};
+
+#[cfg(all(feature = "vm-port-io", not(feature = "vm-uart")))]
+use rforth::vm::{DIRECT_EMIT_PORT, DIRECT_KEY_PORT, DIRECT_KEY_READY_PORT};
+
+#[cfg(all(feature = "vm-port-io", not(feature = "vm-uart")))]
+use rforth::vm::KEY_READY;
+
+#[cfg(all(feature = "vm-uart", not(feature = "vm-port-io")))]
+use rforth::vm::{UART_LSR_ADDR, UART_LSR_READY, UART_RBR_THR_ADDR};
+
+#[cfg(all(feature = "vm-port-io", feature = "vm-uart"))]
+use rforth::vm::{UART_LSR_PORT, UART_LSR_READY, UART_RBR_THR_PORT};
+
+/// Input byte returned by the scripted host backend in non-port configurations.
 #[cfg(not(feature = "vm-port-io"))]
-const INPUT_BYTE_A: u8 = b'a';
+const INPUT_BYTE: u8 = b'a';
 
-/// Input byte used by port I/O tests.
+/// Input byte returned by the scripted host backend in port-I/O configurations.
 #[cfg(feature = "vm-port-io")]
-const INPUT_BYTE_B: u8 = b'b';
+const INPUT_BYTE: u8 = b'b';
 
 /// Output byte written through VM-backed I/O tests.
 const OUTPUT_BYTE_Z: Cell = b'z' as Cell;
 
 /// First sample cell used for stack and memory round-trip assertions.
-const FIRST_CELL: Cell = 0x1122_3344_5566_7788;
+const FIRST_CELL: Cell = 0xFACE_FEED_DEAD_BEEFu64 as i64;
 
 /// Second sample cell used to verify stack ordering.
 const SECOND_CELL: Cell = -42;
@@ -35,107 +61,75 @@ const UNALIGNED_TEST_ADDR: Address = TEST_ADDR + 1;
 /// Sample terminal input buffer contents.
 const TIB_SAMPLE: &[MemoryWord] = b"abc";
 
-/// Compile-time sanity checks for the VM memory map.
+/// Compile-time VM invariants
+///
+/// Rust does not evaluate a top-level `assert!` just because its operands are constants. The
+/// assertions still need to live inside a const-evaluation context. This named const exists only to
+/// provide that context, so broken layout or sizing relationships fail the build before the test
+/// runner starts.
 const _: () = {
     assert!(
         DICTIONARY_START < TIB_START,
         "dictionary must start below the terminal input buffer"
     );
     assert!(
-        TIB_END <= STACK_LIMIT,
-        "terminal input buffer must not overlap the shared stack arena"
+        MEMORY_SIZE == Address::MAX as usize + 1,
+        "memory size must be derived directly from the address type"
     );
     assert!(
-        STACK_LIMIT == RETURN_STACK_BASE,
-        "return stack should start at the low end of the shared stack arena"
+        CELL_SIZE == size_of::<Cell>(),
+        "cell size constant must match the Cell type width"
+    );
+    assert!(
+        CELL_ALIGN == CELL_SIZE,
+        "cell alignment should track the cell size for this VM profile"
+    );
+    assert!(
+        TIB_END as usize == TIB_START as usize + TIB_SIZE,
+        "TIB_END should be computed from TIB_START plus TIB_SIZE"
+    );
+    assert!(
+        TIB_END == RETURN_STACK_BASE,
+        "return stack should start immediately after the terminal input buffer"
     );
     assert!(
         RETURN_STACK_BASE < DATA_STACK_BASE,
         "return and data stacks must start at opposite ends of the arena"
     );
     assert!(
-        DATA_STACK_BASE == STACK_BASE,
+        DATA_STACK_BASE == 0xFE00,
         "data stack should start at the high end of the shared stack arena"
     );
     assert!(
-        DATA_STACK_BASE < MMIO_BASE,
-        "shared stack arena must stay below the MMIO window"
+        DATA_STACK_BASE < IO_REGION_BASE,
+        "shared stack arena must stay below the reserved I/O region"
+    );
+    assert!(
+        IO_REGION_END == IO_REGION_BASE as usize + IO_REGION_SIZE,
+        "IO_REGION_END should be computed from IO_REGION_BASE plus IO_REGION_SIZE"
+    );
+    assert!(
+        IO_REGION_END == MEMORY_SIZE,
+        "reserved I/O region should occupy the top of addressable memory"
     );
 };
-
-/// Scripted host I/O backend used by VM tests.
-///
-/// `key` consumes bytes from `input`, and `emit` records bytes in `output`, allowing tests to
-/// verify that VM I/O dispatch reaches the [`ForthIo`] boundary.
-struct ScriptedIo<'a> {
-    /// Input bytes returned by [`ForthIo::key`].
-    input: &'a [u8],
-    /// Current read offset into `input`.
-    input_pos: usize,
-    /// Bytes captured from [`ForthIo::emit`].
-    output: Vec<u8>,
-}
-
-impl<'a> ScriptedIo<'a> {
-    /// Construct a scripted I/O backend with empty captured output.
-    fn new(input: &'a [u8]) -> Self {
-        Self {
-            input,
-            input_pos: 0,
-            output: Vec::new(),
-        }
-    }
-}
-
-impl ForthIo for ScriptedIo<'_> {
-    /// Capture one output byte.
-    fn emit(&mut self, c: u8) {
-        self.output.push(c);
-    }
-
-    /// Return the next scripted input byte.
-    fn key(&mut self) -> u8 {
-        let c = self.input[self.input_pos];
-        self.input_pos += 1;
-        c
-    }
-}
-
-/// Verifies memory and cell sizing are derived from the VM type aliases.
-#[test]
-fn exposes_type_driven_memory_constants() {
-    assert_eq!(
-        MEMORY_SIZE,
-        Address::MAX as usize + 1,
-        "memory size must be derived directly from the address type"
-    );
-    assert_eq!(
-        CELL_SIZE,
-        size_of::<Cell>(),
-        "cell size constant must match the Cell type width"
-    );
-    assert_eq!(
-        CELL_ALIGN, CELL_SIZE,
-        "cell alignment should track the cell size for this VM profile"
-    );
-}
 
 /// Verifies a newly constructed VM starts with the expected pointers and empty input state.
 #[test]
 fn initializes_vm_layout() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let vm = ForthVm::new(io);
 
     assert_eq!(
-        vm.p, DICTIONARY_START,
+        vm.compile_pointer, DICTIONARY_START,
         "compile pointer should start at DICTIONARY_START"
     );
     assert_eq!(
-        vm.ip, NO_ADDRESS,
+        vm.instruction_pointer, NO_ADDRESS,
         "instruction pointer should start invalid until threaded execution begins"
     );
     assert_eq!(
-        vm.w, NO_ADDRESS,
+        vm.working_register, NO_ADDRESS,
         "work register should start invalid until a word is dispatched"
     );
     assert_eq!(
@@ -143,11 +137,11 @@ fn initializes_vm_layout() {
         "latest dictionary link should start invalid while the dictionary is empty"
     );
     assert_eq!(
-        vm.sp, DATA_STACK_BASE,
+        vm.data_stack_pointer, DATA_STACK_BASE,
         "data stack pointer should start at DATA_STACK_BASE"
     );
     assert_eq!(
-        vm.rp, RETURN_STACK_BASE,
+        vm.return_stack_pointer, RETURN_STACK_BASE,
         "return stack pointer should start at RETURN_STACK_BASE"
     );
     assert_eq!(
@@ -171,41 +165,10 @@ fn initializes_vm_layout() {
     );
 }
 
-/// Verifies the named memory regions are ordered and sized as expected.
-#[test]
-fn layout_constants_do_not_overlap() {
-    assert_eq!(
-        TIB_END as usize,
-        TIB_START as usize + TIB_SIZE,
-        "TIB_END should be computed from TIB_START plus TIB_SIZE"
-    );
-    assert_eq!(
-        STACK_LIMIT, TIB_END,
-        "shared stack arena should begin immediately after the TIB"
-    );
-    assert_eq!(
-        RETURN_STACK_BASE, STACK_LIMIT,
-        "return stack should grow upward from the arena low address"
-    );
-    assert_eq!(
-        DATA_STACK_BASE, STACK_BASE,
-        "data stack should grow downward from the arena high address"
-    );
-    assert_eq!(
-        MMIO_END,
-        MMIO_BASE as usize + MMIO_SIZE,
-        "MMIO_END should be computed from MMIO_BASE plus MMIO_SIZE"
-    );
-    assert_eq!(
-        MMIO_END, MEMORY_SIZE,
-        "MMIO window should occupy the top of addressable memory"
-    );
-}
-
 /// Verifies cell writes are stored in VM memory and read back unchanged.
 #[test]
 fn cell_access_round_trips_through_memory() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     vm.write_cell(TEST_ADDR, FIRST_CELL).unwrap();
@@ -220,7 +183,7 @@ fn cell_access_round_trips_through_memory() {
 /// Verifies cell reads and writes reject unaligned addresses.
 #[test]
 fn cell_access_rejects_unaligned_addresses() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
@@ -238,17 +201,17 @@ fn cell_access_rejects_unaligned_addresses() {
 /// Verifies the data stack stores cells in VM memory and preserves LIFO order.
 #[test]
 fn data_stack_push_pop_uses_memory() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     vm.push_data(FIRST_CELL).unwrap();
     assert_eq!(
-        vm.sp,
+        vm.data_stack_pointer,
         DATA_STACK_BASE - CELL_SIZE as Address,
         "data stack push should move sp downward by one cell"
     );
     assert_eq!(
-        vm.read_cell(vm.sp).unwrap(),
+        vm.read_cell(vm.data_stack_pointer).unwrap(),
         FIRST_CELL,
         "data stack push should store the cell at the new sp address"
     );
@@ -265,7 +228,7 @@ fn data_stack_push_pop_uses_memory() {
         "second data stack pop should return the older cell"
     );
     assert_eq!(
-        vm.sp, DATA_STACK_BASE,
+        vm.data_stack_pointer, DATA_STACK_BASE,
         "data stack pointer should return to base after popping all cells"
     );
 }
@@ -273,7 +236,7 @@ fn data_stack_push_pop_uses_memory() {
 /// Verifies data stack boundary checks report underflow and collision overflow.
 #[test]
 fn data_stack_detects_underflow_and_overflow() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
@@ -282,7 +245,7 @@ fn data_stack_detects_underflow_and_overflow() {
         "popping an empty data stack should report data stack underflow"
     );
 
-    while vm.sp > vm.rp {
+    while vm.data_stack_pointer > vm.return_stack_pointer {
         vm.push_data(FIRST_CELL).unwrap();
     }
 
@@ -296,12 +259,12 @@ fn data_stack_detects_underflow_and_overflow() {
 /// Verifies the return stack stores cells in VM memory and preserves LIFO order.
 #[test]
 fn return_stack_push_pop_uses_memory() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     vm.push_return(FIRST_CELL).unwrap();
     assert_eq!(
-        vm.rp,
+        vm.return_stack_pointer,
         RETURN_STACK_BASE + CELL_SIZE as Address,
         "return stack push should move rp upward by one cell"
     );
@@ -323,7 +286,7 @@ fn return_stack_push_pop_uses_memory() {
         "second return stack pop should return the older cell"
     );
     assert_eq!(
-        vm.rp, RETURN_STACK_BASE,
+        vm.return_stack_pointer, RETURN_STACK_BASE,
         "return stack pointer should return to base after popping all cells"
     );
 }
@@ -331,7 +294,7 @@ fn return_stack_push_pop_uses_memory() {
 /// Verifies return stack boundary checks report underflow and collision overflow.
 #[test]
 fn return_stack_detects_underflow_and_overflow() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
@@ -340,7 +303,7 @@ fn return_stack_detects_underflow_and_overflow() {
         "popping an empty return stack should report return stack underflow"
     );
 
-    while vm.rp < vm.sp {
+    while vm.return_stack_pointer < vm.data_stack_pointer {
         vm.push_return(FIRST_CELL).unwrap();
     }
 
@@ -354,7 +317,7 @@ fn return_stack_detects_underflow_and_overflow() {
 /// Verifies terminal input buffer loading writes VM memory and resets parse state.
 #[test]
 fn tib_load_and_reset_update_vm_memory_and_offsets() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     vm.load_tib(TIB_SAMPLE).unwrap();
@@ -382,10 +345,58 @@ fn tib_load_and_reset_update_vm_memory_and_offsets() {
     assert_eq!(vm.input_pos, 0, "reset_tib should clear the parse offset");
 }
 
+/// Verifies outer-interpreter reset restores the state shared by `QUIT` and `ABORT`.
+#[test]
+fn reset_outer_interpreter_state_restores_control_boundary_state() {
+    let io = ScriptedIo::new(b"", false);
+    let mut vm = ForthVm::new(io);
+    vm.push_return(FIRST_CELL)
+        .expect("pushing a return-stack marker should succeed");
+    vm.state = InterpreterState::Compiling;
+    vm.current_definition = TEST_ADDR;
+    vm.load_tib(TIB_SAMPLE)
+        .expect("loading a test terminal input buffer should succeed");
+    vm.input_pos = 2;
+    vm.instruction_pointer = TEST_ADDR;
+    vm.working_register = TEST_ADDR;
+
+    vm.reset_outer_interpreter_state();
+
+    assert_eq!(
+        vm.return_stack_pointer, RETURN_STACK_BASE,
+        "outer reset should restore the return stack pointer"
+    );
+    assert_eq!(
+        vm.state,
+        InterpreterState::Interpreting,
+        "outer reset should restore interpreting mode"
+    );
+    assert_eq!(
+        vm.current_definition, NO_ADDRESS,
+        "outer reset should close any active definition"
+    );
+    assert_eq!(
+        vm.tib_len, 0,
+        "outer reset should clear the terminal input buffer"
+    );
+    assert_eq!(
+        vm.input_pos, 0,
+        "outer reset should reset the terminal input parse offset"
+    );
+    assert_eq!(
+        vm.instruction_pointer, NO_ADDRESS,
+        "outer reset should clear the threaded-code instruction pointer"
+    );
+    assert_eq!(
+        vm.working_register, NO_ADDRESS,
+        "outer reset should clear the current work register"
+    );
+}
+
 /// Verifies oversized input is rejected instead of overflowing the terminal input buffer.
 #[test]
 fn tib_load_rejects_oversized_input() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
     let input = [MemoryWord::default(); TIB_SIZE + 1];
 
@@ -399,7 +410,7 @@ fn tib_load_rejects_oversized_input() {
 /// Verifies appending terminal input bytes grows the active line in VM memory.
 #[test]
 fn append_tib_byte_writes_into_vm_memory_and_advances_length() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     vm.append_tib_byte(b'A')
@@ -422,10 +433,47 @@ fn append_tib_byte_writes_into_vm_memory_and_advances_length() {
     );
 }
 
+/// Verifies terminal input bytes can be removed from the active line tail.
+#[test]
+fn remove_last_tib_byte_shortens_the_active_line() {
+    let io = ScriptedIo::new(b"", false);
+    let mut vm = ForthVm::new(io);
+    vm.append_tib_byte(b'A')
+        .expect("appending the first TIB byte should succeed");
+    vm.append_tib_byte(b'B')
+        .expect("appending the second TIB byte should succeed");
+
+    assert!(
+        vm.remove_last_tib_byte(),
+        "removing a byte from a non-empty TIB should report success"
+    );
+    assert_eq!(
+        vm.tib_len, 1,
+        "removing the last TIB byte should shorten the active line by one byte"
+    );
+
+    let mut scratch = [0u8; TIB_SIZE];
+    assert_eq!(
+        vm.next_tib_word(&mut scratch)
+            .expect("reading the remaining TIB word should succeed"),
+        Some(b"A".as_slice()),
+        "removed bytes should no longer be part of parsed input"
+    );
+
+    assert!(
+        vm.remove_last_tib_byte(),
+        "removing the final active byte should report success"
+    );
+    assert!(
+        !vm.remove_last_tib_byte(),
+        "removing from an empty line should report no change"
+    );
+}
+
 /// Verifies appending past terminal input buffer capacity is rejected.
 #[test]
 fn append_tib_byte_rejects_input_past_capacity() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     for _ in 0..TIB_SIZE {
@@ -447,7 +495,7 @@ fn append_tib_byte_rejects_input_past_capacity() {
 /// Verifies terminal input words can be copied into scratch storage one token at a time.
 #[test]
 fn next_tib_word_copies_tokens_into_scratch_and_advances_input_pos() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
     let mut scratch = [0u8; TIB_SIZE];
 
@@ -480,10 +528,10 @@ fn next_tib_word_copies_tokens_into_scratch_and_advances_input_pos() {
     );
 }
 
-/// Verifies dictionary allocation advances `p` and stops before the TIB region.
+/// Verify dictionary allocation advances `p` and stops before the TIB region.
 #[test]
 fn allot_advances_dictionary_and_detects_tib_collision() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
@@ -492,7 +540,7 @@ fn allot_advances_dictionary_and_detects_tib_collision() {
         "first allot should return the initial dictionary address"
     );
     assert_eq!(
-        vm.p,
+        vm.compile_pointer,
         DICTIONARY_START + CELL_SIZE as Address,
         "allot should advance the compile pointer by the requested byte count"
     );
@@ -507,7 +555,7 @@ fn allot_advances_dictionary_and_detects_tib_collision() {
 /// Verifies oversized dictionary allocation cannot overflow address arithmetic.
 #[test]
 fn allot_rejects_address_arithmetic_overflow() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
@@ -516,7 +564,7 @@ fn allot_rejects_address_arithmetic_overflow() {
         "allot should reject byte counts that overflow address arithmetic"
     );
     assert_eq!(
-        vm.p, DICTIONARY_START,
+        vm.compile_pointer, DICTIONARY_START,
         "failed allot should leave the compile pointer unchanged"
     );
 }
@@ -525,14 +573,14 @@ fn allot_rejects_address_arithmetic_overflow() {
 /// crossing it.
 #[test]
 fn align_dictionary_can_advance_to_the_tib_boundary() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
-    vm.p = TIB_START - 1;
+    vm.compile_pointer = TIB_START - 1;
 
     vm.align_dictionary()
         .expect("align_dictionary should allow alignment to the exact TIB boundary");
     assert_eq!(
-        vm.p, TIB_START,
+        vm.compile_pointer, TIB_START,
         "align_dictionary should stop at the exact TIB boundary because that address is already cell-aligned"
     );
 }
@@ -541,9 +589,9 @@ fn align_dictionary_can_advance_to_the_tib_boundary() {
 /// buffer.
 #[test]
 fn install_primitive_word_rejects_headers_that_would_reach_the_tib() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
-    vm.p = TIB_START - 1;
+    vm.compile_pointer = TIB_START - 1;
 
     assert_eq!(
         vm.install_primitive_word("X", Primitive::Dup, 0),
@@ -551,7 +599,7 @@ fn install_primitive_word_rejects_headers_that_would_reach_the_tib() {
         "install_primitive_word should reject headers that cannot fit before the TIB"
     );
     assert_eq!(
-        vm.p,
+        vm.compile_pointer,
         TIB_START - 1,
         "failed primitive installation should leave the compile pointer unchanged"
     );
@@ -565,9 +613,9 @@ fn install_primitive_word_rejects_headers_that_would_reach_the_tib() {
 /// input buffer.
 #[test]
 fn install_colon_word_rejects_bodies_that_would_reach_the_tib() {
-    let io = ScriptedIo::new(b"");
+    let io = ScriptedIo::new(b"", false);
     let mut vm = ForthVm::new(io);
-    vm.p = TIB_START - CELL_SIZE as Address;
+    vm.compile_pointer = TIB_START - CELL_SIZE as Address;
 
     assert_eq!(
         vm.install_colon_word("X", &[FIRST_CELL], 0),
@@ -575,7 +623,7 @@ fn install_colon_word_rejects_bodies_that_would_reach_the_tib() {
         "install_colon_word should reject bodies that would extend into the TIB"
     );
     assert_eq!(
-        vm.p,
+        vm.compile_pointer,
         TIB_START - CELL_SIZE as Address,
         "failed colon installation should leave the compile pointer unchanged"
     );
@@ -589,17 +637,17 @@ fn install_colon_word_rejects_bodies_that_would_reach_the_tib() {
 #[cfg(all(not(feature = "vm-port-io"), not(feature = "vm-uart")))]
 #[test]
 fn direct_mmio_dispatches_key_emit_and_ready() {
-    let io = ScriptedIo::new(&[INPUT_BYTE_A]);
+    let io = ScriptedIo::new(&[INPUT_BYTE], false);
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
         vm.read_cell(DIRECT_MMIO_KEY_READY_ADDR).unwrap(),
-        KEY_READY_TRUE,
+        KEY_READY,
         "direct MMIO key-ready address should report ready"
     );
     assert_eq!(
         vm.read_memory_word(DIRECT_MMIO_KEY_ADDR).unwrap(),
-        INPUT_BYTE_A,
+        INPUT_BYTE,
         "direct MMIO key address should read through ForthIo::key"
     );
     vm.write_cell(DIRECT_MMIO_EMIT_ADDR, OUTPUT_BYTE_Z).unwrap();
@@ -614,17 +662,17 @@ fn direct_mmio_dispatches_key_emit_and_ready() {
 #[cfg(all(feature = "vm-port-io", not(feature = "vm-uart")))]
 #[test]
 fn direct_port_io_dispatches_key_emit_and_ready() {
-    let io = ScriptedIo::new(&[INPUT_BYTE_B]);
+    let io = ScriptedIo::new(&[INPUT_BYTE], false);
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
         vm.port_in(DIRECT_KEY_READY_PORT),
-        KEY_READY_TRUE,
+        KEY_READY,
         "direct key-ready port should report ready"
     );
     assert_eq!(
         vm.port_in(DIRECT_KEY_PORT),
-        Cell::from(INPUT_BYTE_B),
+        Cell::from(INPUT_BYTE),
         "direct key port should read through ForthIo::key"
     );
     vm.port_out(DIRECT_EMIT_PORT, OUTPUT_BYTE_Z);
@@ -639,7 +687,7 @@ fn direct_port_io_dispatches_key_emit_and_ready() {
 #[cfg(all(not(feature = "vm-port-io"), feature = "vm-uart"))]
 #[test]
 fn uart_mmio_dispatches_registers() {
-    let io = ScriptedIo::new(&[INPUT_BYTE_A]);
+    let io = ScriptedIo::new(&[INPUT_BYTE], false);
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
@@ -649,7 +697,7 @@ fn uart_mmio_dispatches_registers() {
     );
     assert_eq!(
         vm.read_memory_word(UART_RBR_THR_ADDR).unwrap(),
-        INPUT_BYTE_A,
+        INPUT_BYTE,
         "UART MMIO RBR address should read through ForthIo::key"
     );
     vm.write_memory_word(UART_RBR_THR_ADDR, OUTPUT_BYTE_Z as MemoryWord)
@@ -665,7 +713,7 @@ fn uart_mmio_dispatches_registers() {
 #[cfg(all(feature = "vm-port-io", feature = "vm-uart"))]
 #[test]
 fn uart_port_io_dispatches_registers() {
-    let io = ScriptedIo::new(&[INPUT_BYTE_B]);
+    let io = ScriptedIo::new(&[INPUT_BYTE], false);
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
@@ -675,7 +723,7 @@ fn uart_port_io_dispatches_registers() {
     );
     assert_eq!(
         vm.port_in(UART_RBR_THR_PORT),
-        Cell::from(INPUT_BYTE_B),
+        Cell::from(INPUT_BYTE),
         "UART RBR port should read through ForthIo::key"
     );
     vm.port_out(UART_RBR_THR_PORT, OUTPUT_BYTE_Z);

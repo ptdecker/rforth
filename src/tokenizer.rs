@@ -18,7 +18,7 @@ impl<'a, const N: usize> WordVec<'a, N> {
         }
     }
 
-    /// Add a word to the vector.
+    /// Add a word to the vector
     ///
     /// Returns `false` when the vector is already full.
     pub fn push(&mut self, word: &'a [u8]) -> bool {
