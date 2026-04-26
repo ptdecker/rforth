@@ -122,16 +122,13 @@ double-cell punctuation numeric input is deferred.
 
 The current VM memory layout is:
 
-```mermaid
-flowchart TD
-    A["0x0000<br/>USER_AREA_START<br/>User variables (16 cells / 128 bytes)"] --> B["0x0080<br/>DICTIONARY_START<br/>Dictionary grows upward"]
-    B --> C["0xE000<br/>TIB_START<br/>Terminal Input Buffer (256 bytes)"]
-    C --> D["0xE100<br/>TIB_END / RETURN_STACK_BASE<br/>Return stack grows upward"]
-    D --> E["... shared free stack arena ..."]
-    E --> F["0xFE00<br/>DATA_STACK_BASE<br/>Data stack grows downward"]
-    F --> G["0xFF00<br/>IO_REGION_BASE<br/>Reserved I/O region (256 bytes)"]
-    G --> H["0x10000<br/>MEMORY_SIZE<br/>Top of address space"]
-```
+| Start    | Size          | Region                       | Notes                              |
+|----------|---------------|------------------------------|------------------------------------|
+| `0x0000` | 128 bytes     | User variables               | `0x0000..=0x007F`; `BASE` first    |
+| `0x0080` | 57,216 bytes  | Dictionary                   | `0x0080..=0xDFFF`; grows upward    |
+| `0xE000` | 256 bytes     | Terminal Input Buffer        | `0xE000..=0xE0FF`                  |
+| `0xE100` | 7.5K bytes    | Shared stack arena           | `0xE100..=0xFEFF`                  |
+| `0xFF00` | 256 bytes     | Reserved input/output region | `0xFF00..=0xFFFF`                  |
 
 This layout keeps task-local user variables, the dictionary, and the source buffer low in memory
 and reserves a shared opposing-stack arena in the middle. It also pins a dedicated input/output

@@ -113,12 +113,8 @@ const _: () = {
         "return and data stacks must start at opposite ends of the arena"
     );
     assert!(
-        DATA_STACK_BASE == 0xFE00,
-        "data stack should start at the high end of the shared stack arena"
-    );
-    assert!(
-        DATA_STACK_BASE < IO_REGION_BASE,
-        "shared stack arena must stay below the reserved I/O region"
+        DATA_STACK_BASE == IO_REGION_BASE,
+        "empty data stack pointer should start at the I/O region boundary"
     );
     assert!(
         IO_REGION_END == IO_REGION_BASE as usize + IO_REGION_SIZE,

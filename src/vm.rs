@@ -90,11 +90,11 @@ pub const TIB_END: Address = TIB_START + TIB_SIZE as Address;
 /// downward-growing data stack.
 pub const RETURN_STACK_BASE: Address = TIB_END;
 
-/// Initial data stack pointer; the data stack grows downward from here
+/// Initial data stack pointer; the data stack grows downward from here.
 ///
-/// Starting the data stack high keeps the classic opposing-stack layout and makes overflow a simple
-/// collision check.
-pub const DATA_STACK_BASE: Address = 0xFE00;
+/// This is the empty-stack pointer, so the first pushed cell lands immediately below the reserved
+/// input/output region.
+pub const DATA_STACK_BASE: Address = IO_REGION_BASE;
 
 /// Start with the reserved input/output region at the top of VM memory
 ///
