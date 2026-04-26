@@ -363,6 +363,44 @@ fn batch_mode_accepts_negative_octal_input() {
     );
 }
 
+/// Verifies BASE supports uppercase hexadecimal letter digits.
+#[test]
+fn batch_mode_accepts_uppercase_hex_input() {
+    let mut io = ScriptedIo::new(b"16 BASE ! FF .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(exit, 0, "uppercase hex input should parse successfully");
+    assert_eq!(
+        io.output.as_slice(),
+        b"FF ",
+        "FF should parse as decimal 255 and print as uppercase hexadecimal FF"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "valid uppercase hex input should not emit diagnostics"
+    );
+}
+
+/// Verifies hexadecimal input is case-insensitive while output stays uppercase.
+#[test]
+fn batch_mode_accepts_lowercase_hex_input_and_outputs_uppercase() {
+    let mut io = ScriptedIo::new(b"16 BASE ! ff .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(exit, 0, "lowercase hex input should parse successfully");
+    assert_eq!(
+        io.output.as_slice(),
+        b"FF ",
+        "lowercase ff should parse as decimal 255 and print as uppercase hexadecimal FF"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "valid lowercase hex input should not emit diagnostics"
+    );
+}
+
 /// Verifies digits outside the current BASE are reported as invalid numbers.
 #[test]
 fn batch_mode_rejects_digit_outside_current_base() {
@@ -416,14 +454,14 @@ fn batch_mode_rejects_invalid_base_for_output() {
     assert_eq!(low_exit, 1, "BASE below 2 should fail conversion");
     assert_eq!(
         low.stderr.as_slice(),
-        b"invalid-number ?\n",
-        "BASE below 2 should report invalid-number"
+        b"invalid-base ?\n",
+        "BASE below 2 should report invalid-base"
     );
     assert_eq!(high_exit, 1, "BASE above 36 should fail conversion");
     assert_eq!(
         high.stderr.as_slice(),
-        b"invalid-number ?\n",
-        "BASE above 36 should report invalid-number"
+        b"invalid-base ?\n",
+        "BASE above 36 should report invalid-base"
     );
 }
 

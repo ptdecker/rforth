@@ -96,7 +96,7 @@ pub enum Primitive {
     Over = 24,
     /// Abort the current run.
     Abort = 25,
-    /// Print the top stack cell in signed decimal.
+    /// Print the top stack cell in the current base followed by a space.
     Dot = 26,
     /// Abort the current run when the top stack flag is zero.
     QuestionAbort = 27,

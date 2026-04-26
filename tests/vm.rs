@@ -211,7 +211,7 @@ fn base_defaults_to_decimal_and_rejects_invalid_values() {
         .expect("writing an invalid low base should succeed");
     assert_eq!(
         vm.validated_base(),
-        Err(VmError::InvalidNumber),
+        Err(VmError::InvalidBase),
         "BASE below 2 should be rejected during conversion"
     );
 
@@ -219,7 +219,7 @@ fn base_defaults_to_decimal_and_rejects_invalid_values() {
         .expect("writing an invalid high base should succeed");
     assert_eq!(
         vm.validated_base(),
-        Err(VmError::InvalidNumber),
+        Err(VmError::InvalidBase),
         "BASE above 36 should be rejected during conversion"
     );
 }

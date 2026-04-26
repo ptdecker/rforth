@@ -15,7 +15,7 @@ const KEY_NAME: &str = "KEY";
 /// Dictionary name for the output-byte primitive.
 const EMIT_NAME: &str = "EMIT";
 
-/// Dictionary name for the signed decimal output primitive.
+/// Dictionary name for the current-base numeric output primitive.
 const DOT_NAME: &str = ".";
 
 #[cfg(all(not(feature = "vm-port-io"), not(feature = "vm-uart")))]

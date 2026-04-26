@@ -271,6 +271,8 @@ pub enum VmError {
     InvalidSource,
     /// A source-level numeric literal could not be parsed.
     InvalidNumber,
+    /// The `BASE` user variable is outside the supported radix range.
+    InvalidBase,
     /// A source-level abort or failure word requested termination.
     Abort,
 }
@@ -344,6 +346,8 @@ impl<I: ForthIo> ForthVm<I> {
         let mut memory = [MEMORY_WORD_ZERO; MEMORY_SIZE];
         let base_start = BASE_ADDRESS as usize;
         let base_bytes = DEFAULT_BASE.to_le_bytes();
+        // Not const fn: copy_from_slice is not const-stable. Embedded static initialization will
+        // need lazy initialization or linker-provided bytes if that target needs a static VM.
         memory[base_start..base_start + CELL_SIZE].copy_from_slice(&base_bytes);
 
         Self {
@@ -460,7 +464,7 @@ impl<I: ForthIo> ForthVm<I> {
     pub fn validated_base(&mut self) -> Result<u32, VmError> {
         let base = self.base()?;
         if !(2..=36).contains(&base) {
-            return Err(VmError::InvalidNumber);
+            return Err(VmError::InvalidBase);
         }
         Ok(base as u32)
     }

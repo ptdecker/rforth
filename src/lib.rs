@@ -432,7 +432,7 @@ fn parse_single_cell_number(token: &[u8], base: u32) -> Result<Option<Cell>, VmE
     }
 
     if index == token.len() {
-        return Err(VmError::InvalidNumber);
+        return Ok(None);
     }
 
     let mut value: i128 = 0;
@@ -496,7 +496,7 @@ fn category_for_vm_error(error: VmError) -> ErrorCategory {
         VmError::TibOverflow | VmError::DictionaryOverflow => ErrorCategory::DictionaryOrTib,
         VmError::EndOfInput | VmError::IoError => ErrorCategory::Io,
         VmError::InvalidDictionaryEntry | VmError::UnknownPrimitive => ErrorCategory::Internal,
-        VmError::Abort | VmError::InvalidSource | VmError::InvalidNumber => {
+        VmError::Abort | VmError::InvalidSource | VmError::InvalidNumber | VmError::InvalidBase => {
             ErrorCategory::UnknownOrSyntax
         }
     }
@@ -621,6 +621,7 @@ fn emit_vm_error(io: &mut impl ForthIo, error: VmError) {
         VmError::IoError => b"io-error",
         VmError::InvalidSource => b"invalid-source",
         VmError::InvalidNumber => b"invalid-number",
+        VmError::InvalidBase => b"invalid-base",
         VmError::Abort => b"abort",
     };
     emit_category_message(io, message);
