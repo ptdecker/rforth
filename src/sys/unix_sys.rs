@@ -3,7 +3,6 @@
 //! [`SystemSys`] implements [`super::SysCalls`] using thin, `unsafe` wrappers around the
 //! corresponding `libc` calls. Error return values are currently unchecked; this is intentional for
 //! the initial scaffolding and can be tightened once the interpreter core is more complete.
-//TODO: Implement error handling for syscalls
 
 /// Zero-sized token that carries the Unix [`super::SysCalls`] implementation
 ///
@@ -21,6 +20,8 @@ impl super::SysCalls for SystemSys {
     /// `fd` must be a valid, readable file descriptor. `buf` must be valid for writes of
     /// `buf.len()` bytes for the duration of the call.
     unsafe fn sys_read(&self, fd: i32, buf: &mut [u8]) -> isize {
+        // SAFETY: The caller upholds the `read(2)` preconditions described in this function's
+        // safety contract; the slice supplies a non-null pointer valid for `buf.len()` bytes.
         unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) as isize }
     }
 
@@ -31,6 +32,8 @@ impl super::SysCalls for SystemSys {
     /// `fd` must be a valid, writable file descriptor. `buf` must be valid for reads of
     /// `buf.len()` bytes for the duration of the call.
     unsafe fn sys_write(&self, fd: i32, buf: &[u8]) -> isize {
+        // SAFETY: The caller upholds the `write(2)` preconditions described in this function's
+        // safety contract; the slice supplies a non-null pointer valid for `buf.len()` bytes.
         unsafe { libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len()) as isize }
     }
 }
@@ -45,6 +48,8 @@ impl super::SysCalls for SystemSys {
 ///
 /// `fd` must be an open file descriptor that refers to a terminal.
 pub unsafe fn sys_set_raw_mode(fd: i32) -> libc::termios {
+    // SAFETY: The caller guarantees `fd` is a terminal file descriptor. `orig` is immediately
+    // initialized by `tcgetattr`, then copied and passed back to `tcsetattr` with valid pointers.
     unsafe {
         let mut orig = core::mem::zeroed::<libc::termios>();
         let rc = libc::tcgetattr(fd, &mut orig);
@@ -75,6 +80,8 @@ pub unsafe fn sys_set_raw_mode(fd: i32) -> libc::termios {
 /// `fd` must be an open file descriptor that refers to a terminal, and `orig` must have been
 /// obtained from a prior call to `tcgetattr` (or [`sys_set_raw_mode`]) on the same terminal.
 pub unsafe fn sys_restore_mode(fd: i32, orig: &libc::termios) {
+    // SAFETY: The caller guarantees `fd` is the terminal associated with `orig`; the shared
+    // reference is a valid pointer for the duration of the `tcsetattr` call.
     unsafe {
         libc::tcsetattr(fd, libc::TCSAFLUSH, orig);
     }

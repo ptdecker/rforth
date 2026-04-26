@@ -10,39 +10,48 @@ the `embedded` Cargo feature flag.
 ## Status
 
 Early implementation. The reusable virtual machine now installs the classic irreducible stage-zero
-core: threaded inner-interpreter words, `QUIT`, `BYE`, basic stack and memory primitives, and
-`KEY` / `EMIT`. The top-level runner now tokenizes each completed input line, looks up installed
-words in the dictionary, executes recognized stage-zero words, reports unknown words, returns to an
-`OK` prompt after successful lines, and exits cleanly on `BYE`.
+core plus the first source-driven bootstrap layer: threaded inner-interpreter words, `QUIT`,
+`BYE`, `ABORT`, `?ABORT`, basic stack and memory primitives, arithmetic/comparison words, source
+compiler words `:` / `;`, and `KEY` / `EMIT` / `.`. The runner now supports:
+
+- interactive TTY mode with prompts and local echo
+- simple interactive backspace/delete editing at the end of the current line
+- batch stdin mode for a piped or redirected Forth source
+- signed decimal literals and source-defined colon words
+- basic Forth source comments with `\` and single-line, whitespace-delimited `( ... )`
+- stderr diagnostics with nonzero Unix exit codes on batch failures
 
 ## Building and running
 
 ```bash
 cargo build          # build
 cargo run            # run the interpreter (Unix only)
-cargo test           # run tests
-cargo clippy         # lint
-scripts/check-all-vm-variants.sh  # format, test, and lint all VM variants
+printf ': ONE 1 ; ONE .\n' | cargo run   # run a Forth source snippet through stdin
+cargo test           # run the default test suite
+scripts/check-ci.sh  # format, test, and lint all VM variants
 ```
 
 ## Testing
 
 Tests are host-side Rust tests that exercise the reusable library crate. The tokenizer tests cover
 allocation-free word parsing, capacity handling, and `WordVec` behavior. The interpreter tests use a
-scripted `ForthIo` implementation to drive both the outer interpreter loop and the stage-zero
-virtual machine words without touching the terminal or raw syscalls.
+scripted `ForthIo` implementation to drive both the outer interpreter loop and the virtual machine
+words without touching the terminal or raw syscalls. Batch-mode tests also feed actual `.fth` source
+fixtures through stdin semantics and check stdout, stderr, and exit-code behavior.
 
-Run the full test suite with:
+Run the default test suite with:
 
 ```bash
 cargo test
 ```
 
-Run the full VM feature matrix with:
+Run the full VM feature matrix with formatting and linting:
 
 ```bash
-scripts/check-all-vm-variants.sh
+scripts/check-ci.sh
 ```
+
+CI uses `scripts/check-ci.sh --ci-runner`, which checks formatting without rewriting files.
 
 ## Coverage
 
@@ -92,18 +101,37 @@ words/          — stage-zero word registration and grouped primitive implement
 ```
 
 The interpreter core (`run_forth`) is platform-agnostic and communicates with the outside world
-exclusively through the `ForthIo` trait (`emit` / `key`). The `io` layer depends on the `sys`
-layer for the actual syscalls, keeping the two concerns separate.
+exclusively through the `ForthIo` trait (`emit`, `emit_error`, `key`, and `read_key`). The `io`
+layer depends on the `sys` layer for the actual syscalls, keeping the two concerns separate.
 
-`SystemIo` puts stdin into raw mode (no canonical processing, no echo, `VMIN=1 VTIME=0`) on
-construction and restores the original terminal settings automatically when it is dropped.
+`SystemIo` detects whether stdin is interactive. Interactive terminals are switched into raw mode
+(no canonical processing, no echo, `VMIN=1 VTIME=0`) and restored automatically on a drop. Non-TTY
+stdin stays in batch mode, so piped source files can be consumed until EOF without prompts or echo.
 
 The VM uses typed aliases for `MemoryWord`, `Cell`, and `Address`; `MEMORY_SIZE` is derived from
 the address type. All VM layout and I/O values are named constants. The default VM profile is
 direct memory-mapped I/O; `vm-uart`, `vm-port-io`, and their combination selects the alternate UART
 and port-mapped models. The stage-zero engine installs dictionary-resident primitive words and can
 execute colon definitions through the inner interpreter using the instruction pointer (`IP`), work
-register (`W`), and compile pointer (`P`) machine state.
+register (`W`), and compile pointer (`P`) machine state. The source interpreter now compiles colon
+definitions by creating dictionary entries whose runtime code field dispatches through `DOCOL`.
+
+The current VM memory layout is:
+
+```mermaid
+flowchart TD
+    A["0x0000<br/>DICTIONARY_START<br/>Dictionary grows upward"] --> B["0xE000<br/>TIB_START<br/>Terminal Input Buffer (256 bytes)"]
+    B --> C["0xE100<br/>TIB_END / RETURN_STACK_BASE<br/>Return stack grows upward"]
+    C --> D["... shared free stack arena ..."]
+    D --> E["0xFE00<br/>DATA_STACK_BASE<br/>Data stack grows downward"]
+    E --> F["0xFF00<br/>IO_REGION_BASE<br/>Reserved I/O region (256 bytes)"]
+    F --> G["0x10000<br/>MEMORY_SIZE<br/>Top of address space"]
+```
+
+This layout keeps the dictionary and source buffer low in memory and reserves a shared 
+opposing-stack arena in the middle. It also pins a dedicated input/output region at the top of the 
+address space so device-facing addresses stay stable as the dictionary grows regardless of the
+active I/O model.
 
 ## Wiki
 

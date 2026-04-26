@@ -1,4 +1,4 @@
-//! Memory access words.
+//! Memory access words
 //!
 //! These stage-zero words expose byte and cell fetch/store operations over the VM address space.
 
@@ -9,9 +9,16 @@ use crate::{
 
 use super::{Control, Primitive};
 
+/// Dictionary name for the cell-fetch primitive.
 const FETCH_NAME: &str = "@";
+
+/// Dictionary name for the cell-store primitive.
 const STORE_NAME: &str = "!";
+
+/// Dictionary name for the byte-fetch primitive.
 const C_FETCH_NAME: &str = "C@";
+
+/// Dictionary name for the byte-store primitive.
 const C_STORE_NAME: &str = "C!";
 
 /// Install the stage-zero memory words in dictionary order.

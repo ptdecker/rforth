@@ -7,7 +7,7 @@
 use super::*;
 
 impl ForthIo for SystemIo {
-    /// Not yet implemented for embedded targets.
+    /// Not yet implemented for embedded targets
     ///
     /// # Panics
     ///
@@ -16,7 +16,16 @@ impl ForthIo for SystemIo {
         unimplemented!("emit not implemented for embedded target")
     }
 
-    /// Not yet implemented for embedded targets.
+    /// Not yet implemented for embedded targets
+    ///
+    /// # Panics
+    ///
+    /// Always panics.
+    fn emit_error(&mut self, _c: u8) {
+        unimplemented!("emit_error not implemented for embedded target")
+    }
+
+    /// Not yet implemented for embedded targets
     ///
     /// # Panics
     ///

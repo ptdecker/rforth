@@ -4,6 +4,30 @@ This changelog was reconstructed from the Git history. Minor versions track func
 the interpreter; test- and CI-only changes are recorded as maintenance notes without consuming a
 minor version.
 
+## Maintenance - 2026-04-25
+
+- Renamed the full VM variant verification script to `scripts/check-ci.sh`, added a leading
+  `cargo fmt` pass, and updated GitHub Actions to invoke the script directly.
+- Removed the duplicate Rust-side `.fth` self-test from `run_forth.rs`; the fixture now runs through
+  the actual `rforth` binary via stdin in the CI script.
+- Consolidated `QUIT` and `ABORT` reset behavior through the VM's shared outer-interpreter reset
+  helper, leaving the runner responsible only for host-side prompt and exit policy.
+- Centralized the scripted integration-test I/O double in `tests/common` and expanded Rustdoc and
+  safety comments across the VM, word, I/O, syscall, and test-support modules.
+
+## 0.9.0 - 2026-04-25
+
+- Added a source-driven outer interpreter that now accepts signed decimal literals and source-level
+  `:` / `;` colon definitions instead of only executing preinstalled dictionary words.
+- Added batch stdin mode with EOF handling, stdout/stderr separation, error-category-based Unix
+  exit codes, and prompt/echo suppression for piped or redirected source input.
+- Added simple interactive Backspace/Delete handling for editing the end of the current input line.
+- Added basic source comments with `\` line comments and whitespace-delimited `( ... )`
+  parenthesized comments.
+- Added bootstrap words needed for a usable source REPL and self-test files, including `.`,
+  `ABORT`, `?ABORT`, `+`, `-`, `=`, `0=`, and `OVER`.
+- Added a fixture-driven `.fth` batch self-test covering the implemented primitive substrate.
+
 ## 0.8.0 - 2026-04-24
 
 - Added the stage-zero `BYE` word so the outer interpreter can terminate cleanly instead of only

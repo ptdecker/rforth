@@ -1,4 +1,4 @@
-//! Stage-zero Forth words grouped by behavior.
+//! Stage-zero Forth words grouped by behavior
 //!
 //! This module installs the classic irreducible stage-zero nucleus: the inner interpreter words,
 //! minimal control words including `QUIT` and `BYE`, core stack and memory words, and the basic
@@ -9,6 +9,10 @@ use crate::{
     vm::{Cell, ForthVm, VmError},
 };
 
+/// Arithmetic and comparison words used by the first source-driven REPL
+pub mod arithmetic;
+/// Source-compiler words such as `:` and `;`
+pub mod compiler;
 /// Control-flow and outer-interpreter words such as `QUIT` and `BYE`
 pub mod control;
 /// Inner-interpreter words such as `NEXT`, `DOCOL`, and `DOSEMI`
@@ -29,9 +33,11 @@ pub enum Control {
     Quit,
     /// Terminate the outer interpreter and return to the host.
     Bye,
+    /// Terminate the current run because a source-level abort was requested.
+    Abort,
 }
 
-/// Primitive handler identifiers stored in dictionary code fields.
+/// Primitive handler identifiers stored in dictionary code fields
 ///
 /// Rust executes a primitive handler directly when its word runs. Colon definitions instead store
 /// the dedicated `DOCOL` marker in their code field address (CFA).
@@ -72,6 +78,26 @@ pub enum Primitive {
     Key = 16,
     /// Write one character to the configured output backend.
     Emit = 17,
+    /// Begin compiling a colon definition from source input.
+    Colon = 18,
+    /// Finish compiling a colon definition.
+    Semicolon = 19,
+    /// Add the top two stack cells.
+    Add = 20,
+    /// Subtract the top stack cell from the next cell.
+    Subtract = 21,
+    /// Compare the top two stack cells for equality.
+    Equal = 22,
+    /// Test whether the top stack cell is zero.
+    ZeroEqual = 23,
+    /// Copy the second stack cell to the top of the stack.
+    Over = 24,
+    /// Abort the current run.
+    Abort = 25,
+    /// Print the top stack cell in signed decimal.
+    Dot = 26,
+    /// Abort the current run when the top stack flag is zero.
+    QuestionAbort = 27,
 }
 
 impl Primitive {
@@ -100,6 +126,16 @@ impl Primitive {
             15 => Some(Self::CStore),
             16 => Some(Self::Key),
             17 => Some(Self::Emit),
+            18 => Some(Self::Colon),
+            19 => Some(Self::Semicolon),
+            20 => Some(Self::Add),
+            21 => Some(Self::Subtract),
+            22 => Some(Self::Equal),
+            23 => Some(Self::ZeroEqual),
+            24 => Some(Self::Over),
+            25 => Some(Self::Abort),
+            26 => Some(Self::Dot),
+            27 => Some(Self::QuestionAbort),
             _ => None,
         }
     }
@@ -124,6 +160,16 @@ impl Primitive {
             Self::CStore => memory::execute_c_store(vm),
             Self::Key => io::execute_key(vm),
             Self::Emit => io::execute_emit(vm),
+            Self::Colon => compiler::execute_colon(vm),
+            Self::Semicolon => compiler::execute_semicolon(vm),
+            Self::Add => arithmetic::execute_add(vm),
+            Self::Subtract => arithmetic::execute_subtract(vm),
+            Self::Equal => arithmetic::execute_equal(vm),
+            Self::ZeroEqual => arithmetic::execute_zero_equal(vm),
+            Self::Over => stack::execute_over(vm),
+            Self::Abort => control::execute_abort(vm),
+            Self::Dot => io::execute_dot(vm),
+            Self::QuestionAbort => control::execute_question_abort(vm),
         }
     }
 }
@@ -132,7 +178,9 @@ impl Primitive {
 pub fn install_stage_zero<I: ForthIo>(vm: &mut ForthVm<I>) -> Result<(), VmError> {
     inner::install(vm)?;
     control::install(vm)?;
+    compiler::install(vm)?;
     stack::install(vm)?;
+    arithmetic::install(vm)?;
     memory::install(vm)?;
     io::install(vm)?;
     Ok(())
