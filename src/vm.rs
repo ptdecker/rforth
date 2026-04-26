@@ -353,7 +353,7 @@ impl<I: ForthIo> ForthVm<I> {
     pub fn read_memory_word(&mut self, address: Address) -> Result<MemoryWord, VmError> {
         #[cfg(not(feature = "vm-port-io"))]
         if is_io_region_address(address) {
-            return Ok(self.read_mmio(address) as MemoryWord);
+            return self.read_mmio(address).map(|value| value as MemoryWord);
         }
 
         Ok(self.memory[address_index(address)])
@@ -387,7 +387,7 @@ impl<I: ForthIo> ForthVm<I> {
     pub fn read_cell(&mut self, address: Address) -> Result<Cell, VmError> {
         #[cfg(not(feature = "vm-port-io"))]
         if is_io_region_address(address) {
-            return Ok(self.read_mmio(address));
+            return self.read_mmio(address);
         }
 
         let start = checked_cell_start(address)?;
@@ -948,7 +948,7 @@ impl<I: ForthIo> ForthVm<I> {
 
     /// Read a cell from an input/output port.
     #[cfg(feature = "vm-port-io")]
-    pub fn port_in(&mut self, port: Address) -> Cell {
+    pub fn port_in(&mut self, port: Address) -> Result<Cell, VmError> {
         #[cfg(feature = "vm-uart")]
         {
             self.uart_port_in(port)
@@ -975,7 +975,7 @@ impl<I: ForthIo> ForthVm<I> {
     }
 
     #[cfg(not(feature = "vm-port-io"))]
-    fn read_mmio(&mut self, address: Address) -> Cell {
+    fn read_mmio(&mut self, address: Address) -> Result<Cell, VmError> {
         #[cfg(feature = "vm-uart")]
         {
             self.uart_mmio_read(address)
@@ -1001,11 +1001,11 @@ impl<I: ForthIo> ForthVm<I> {
     }
 
     #[cfg(all(not(feature = "vm-port-io"), not(feature = "vm-uart")))]
-    fn direct_mmio_read(&mut self, address: Address) -> Cell {
+    fn direct_mmio_read(&mut self, address: Address) -> Result<Cell, VmError> {
         match address {
-            DIRECT_MMIO_KEY_ADDR => Cell::from(self.io.key()),
-            DIRECT_MMIO_KEY_READY_ADDR => KEY_READY,
-            _ => UNKNOWN_IO_VALUE,
+            DIRECT_MMIO_KEY_ADDR => self.read_input_byte().map(Cell::from),
+            DIRECT_MMIO_KEY_READY_ADDR => Ok(KEY_READY),
+            _ => Ok(UNKNOWN_IO_VALUE),
         }
     }
 
@@ -1017,11 +1017,11 @@ impl<I: ForthIo> ForthVm<I> {
     }
 
     #[cfg(all(feature = "vm-port-io", not(feature = "vm-uart")))]
-    fn direct_port_in(&mut self, port: Address) -> Cell {
+    fn direct_port_in(&mut self, port: Address) -> Result<Cell, VmError> {
         match port {
-            DIRECT_KEY_PORT => Cell::from(self.io.key()),
-            DIRECT_KEY_READY_PORT => KEY_READY,
-            _ => UNKNOWN_IO_VALUE,
+            DIRECT_KEY_PORT => self.read_input_byte().map(Cell::from),
+            DIRECT_KEY_READY_PORT => Ok(KEY_READY),
+            _ => Ok(UNKNOWN_IO_VALUE),
         }
     }
 
@@ -1033,11 +1033,11 @@ impl<I: ForthIo> ForthVm<I> {
     }
 
     #[cfg(all(not(feature = "vm-port-io"), feature = "vm-uart"))]
-    fn uart_mmio_read(&mut self, address: Address) -> Cell {
+    fn uart_mmio_read(&mut self, address: Address) -> Result<Cell, VmError> {
         match address {
-            UART_RBR_THR_ADDR => Cell::from(self.io.key()),
-            UART_LSR_ADDR => UART_LSR_READY,
-            _ => UNKNOWN_IO_VALUE,
+            UART_RBR_THR_ADDR => self.read_input_byte().map(Cell::from),
+            UART_LSR_ADDR => Ok(UART_LSR_READY),
+            _ => Ok(UNKNOWN_IO_VALUE),
         }
     }
 
@@ -1049,11 +1049,11 @@ impl<I: ForthIo> ForthVm<I> {
     }
 
     #[cfg(all(feature = "vm-port-io", feature = "vm-uart"))]
-    fn uart_port_in(&mut self, port: Address) -> Cell {
+    fn uart_port_in(&mut self, port: Address) -> Result<Cell, VmError> {
         match port {
-            UART_RBR_THR_PORT => Cell::from(self.io.key()),
-            UART_LSR_PORT => UART_LSR_READY,
-            _ => UNKNOWN_IO_VALUE,
+            UART_RBR_THR_PORT => self.read_input_byte().map(Cell::from),
+            UART_LSR_PORT => Ok(UART_LSR_READY),
+            _ => Ok(UNKNOWN_IO_VALUE),
         }
     }
 

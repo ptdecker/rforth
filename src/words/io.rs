@@ -58,7 +58,7 @@ pub(crate) fn install<I: ForthIo>(vm: &mut ForthVm<I>) -> Result<(), VmError> {
 /// Execute `KEY` by reading one character through the active VM input model.
 pub(crate) fn execute_key<I: ForthIo>(vm: &mut ForthVm<I>) -> Result<Control, VmError> {
     #[cfg(feature = "vm-port-io")]
-    let value = vm.port_in(ACTIVE_KEY_PORT);
+    let value = vm.port_in(ACTIVE_KEY_PORT)?;
 
     #[cfg(not(feature = "vm-port-io"))]
     let value = vm.read_cell(ACTIVE_KEY_ADDRESS)?;

@@ -470,6 +470,19 @@ fn remove_last_tib_byte_shortens_the_active_line() {
     );
 }
 
+/// Verifies VM input reads preserve structured host I/O failures.
+#[test]
+fn read_input_byte_reports_host_io_failure() {
+    let io = ScriptedIo::with_read_error(b"", false);
+    let mut vm = ForthVm::new(io);
+
+    assert_eq!(
+        vm.read_input_byte(),
+        Err(VmError::IoError),
+        "VM input reads should preserve host I/O failures instead of fabricating a byte"
+    );
+}
+
 /// Verifies appending past terminal input buffer capacity is rejected.
 #[test]
 fn append_tib_byte_rejects_input_past_capacity() {
@@ -666,12 +679,12 @@ fn direct_port_io_dispatches_key_emit_and_ready() {
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
-        vm.port_in(DIRECT_KEY_READY_PORT),
+        vm.port_in(DIRECT_KEY_READY_PORT).unwrap(),
         KEY_READY,
         "direct key-ready port should report ready"
     );
     assert_eq!(
-        vm.port_in(DIRECT_KEY_PORT),
+        vm.port_in(DIRECT_KEY_PORT).unwrap(),
         Cell::from(INPUT_BYTE),
         "direct key port should read through ForthIo::key"
     );
@@ -717,12 +730,12 @@ fn uart_port_io_dispatches_registers() {
     let mut vm = ForthVm::new(io);
 
     assert_eq!(
-        vm.port_in(UART_LSR_PORT),
+        vm.port_in(UART_LSR_PORT).unwrap(),
         UART_LSR_READY,
         "UART port line status register should report ready bits"
     );
     assert_eq!(
-        vm.port_in(UART_RBR_THR_PORT),
+        vm.port_in(UART_RBR_THR_PORT).unwrap(),
         Cell::from(INPUT_BYTE),
         "UART RBR port should read through ForthIo::key"
     );

@@ -24,6 +24,8 @@ pub struct ScriptedIo<'a> {
     pub stderr: Vec<u8>,
     /// Whether the source should be treated as interactive.
     interactive: bool,
+    /// Whether reads should report an I/O error after scripted bytes are exhausted.
+    fail_after_input: bool,
 }
 
 impl<'a> ScriptedIo<'a> {
@@ -35,6 +37,19 @@ impl<'a> ScriptedIo<'a> {
             output: Vec::new(),
             stderr: Vec::new(),
             interactive,
+            fail_after_input: false,
+        }
+    }
+
+    /// Construct a scripted backend that reports an input failure after its bytes are consumed.
+    pub fn with_read_error(input: &'a [u8], interactive: bool) -> Self {
+        Self {
+            input,
+            input_pos: 0,
+            output: Vec::new(),
+            stderr: Vec::new(),
+            interactive,
+            fail_after_input: true,
         }
     }
 }
@@ -63,6 +78,9 @@ impl ForthIo for ScriptedIo<'_> {
     /// Read the next scripted input byte or report EOF.
     fn read_key(&mut self) -> InputEvent {
         if self.input_pos == self.input.len() {
+            if self.fail_after_input {
+                return InputEvent::Error;
+            }
             return InputEvent::Eof;
         }
         let c = self.input[self.input_pos];

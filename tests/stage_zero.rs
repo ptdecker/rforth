@@ -499,6 +499,22 @@ fn executes_stage_zero_io_words() {
     );
 }
 
+/// Verifies `KEY` propagates host input failures through the VM instead of fabricating a byte.
+#[test]
+fn key_reports_host_input_failure() {
+    let io = ScriptedIo::with_read_error(b"", false);
+    let mut vm = ForthVm::new(io);
+    install_stage_zero(&mut vm).expect("stage-zero installation should succeed");
+
+    let key_working_register = find_word(&mut vm, "KEY").expect("KEY should be installed");
+
+    assert_eq!(
+        vm.run_word(key_working_register),
+        Err(VmError::IoError),
+        "KEY should propagate host input failures through the VM"
+    );
+}
+
 /// Verifies `QUIT` restores the minimal outer-interpreter state.
 #[test]
 fn executes_quit_as_outer_interpreter_reset() {

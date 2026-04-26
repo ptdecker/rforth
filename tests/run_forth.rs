@@ -108,6 +108,29 @@ fn batch_mode_suppresses_prompts_and_echo() {
     );
 }
 
+/// Verifies interactive input-source failures are fatal and return the I/O exit code.
+#[test]
+fn interactive_mode_returns_io_exit_code_on_input_failure() {
+    let mut io = ScriptedIo::with_read_error(b"", true);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 6,
+        "an interactive input failure should return the I/O exit code"
+    );
+    assert_eq!(
+        io.output.as_slice(),
+        b"OK\n",
+        "interactive mode should emit only the startup prompt before the fatal read failure"
+    );
+    assert_eq!(
+        io.stderr.as_slice(),
+        b"io-error ?\n",
+        "fatal input failures should be reported to stderr"
+    );
+}
+
 /// Verifies carriage return is echoed and normalized only in interactive mode.
 #[test]
 fn carriage_return_echoes_newline_before_prompt_in_interactive_mode() {
@@ -229,6 +252,72 @@ fn batch_mode_compiles_and_executes_a_colon_definition() {
     assert!(
         io.stderr.is_empty(),
         "successful batch compilation and execution should not emit diagnostics"
+    );
+}
+
+/// Verifies source-level ABORT reports a user-facing failure instead of an internal error.
+#[test]
+fn batch_mode_reports_abort_as_source_failure() {
+    let mut io = ScriptedIo::new(b"ABORT\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 1,
+        "ABORT should return the unknown-or-syntax exit code"
+    );
+    assert!(
+        io.output.is_empty(),
+        "ABORT should not emit normal output in batch mode"
+    );
+    assert_eq!(
+        io.stderr.as_slice(),
+        b"abort ?\n",
+        "ABORT should emit a user-facing diagnostic"
+    );
+}
+
+/// Verifies ?ABORT reports the same user-facing failure when its flag is zero.
+#[test]
+fn batch_mode_reports_question_abort_as_source_failure() {
+    let mut io = ScriptedIo::new(b"0 ?ABORT\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 1,
+        "?ABORT should return the unknown-or-syntax exit code when its flag is zero"
+    );
+    assert!(
+        io.output.is_empty(),
+        "?ABORT should not emit normal output in batch mode"
+    );
+    assert_eq!(
+        io.stderr.as_slice(),
+        b"abort ?\n",
+        "?ABORT should emit the same diagnostic as ABORT"
+    );
+}
+
+/// Verifies KEY reports EOF through the runner instead of aborting the host process.
+#[test]
+fn batch_mode_reports_key_end_of_input() {
+    let mut io = ScriptedIo::new(b"KEY\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 6,
+        "KEY at EOF should return the I/O exit code in batch mode"
+    );
+    assert!(
+        io.output.is_empty(),
+        "KEY at EOF should not emit normal output"
+    );
+    assert_eq!(
+        io.stderr.as_slice(),
+        b"end-of-input ?\n",
+        "KEY at EOF should report the structured VM input error"
     );
 }
 

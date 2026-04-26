@@ -146,7 +146,7 @@ fn run_forth_loop(io: &mut impl ForthIo, max_reads: Option<usize>) -> i32 {
             InputEvent::Error => {
                 let category = ErrorCategory::Io;
                 emit_category_message(&mut vm.io, b"io-error");
-                return finish_error(interactive, &mut vm.io, category, &mut last_error);
+                return finish_fatal_error(category, &mut last_error);
             }
         }
     }
@@ -306,7 +306,8 @@ fn process_line(
                 return Some(last_error.map_or(EXIT_SUCCESS, exit_code));
             }
             Ok(Control::Abort) => {
-                let category = ErrorCategory::Internal;
+                let category = ErrorCategory::UnknownOrSyntax;
+                emit_vm_error(&mut vm.io, VmError::Abort);
                 let code = finish_error(interactive, &mut vm.io, category, last_error);
                 return if interactive { None } else { Some(code) };
             }
@@ -459,10 +460,10 @@ fn category_for_vm_error(error: VmError) -> ErrorCategory {
         | VmError::StackUnderflow(vm::StackKind::Return) => ErrorCategory::ReturnStack,
         VmError::TibOverflow | VmError::DictionaryOverflow => ErrorCategory::DictionaryOrTib,
         VmError::EndOfInput | VmError::IoError => ErrorCategory::Io,
-        VmError::InvalidDictionaryEntry | VmError::UnknownPrimitive | VmError::Abort => {
-            ErrorCategory::Internal
+        VmError::InvalidDictionaryEntry | VmError::UnknownPrimitive => ErrorCategory::Internal,
+        VmError::Abort | VmError::InvalidSource | VmError::InvalidNumber => {
+            ErrorCategory::UnknownOrSyntax
         }
-        VmError::InvalidSource | VmError::InvalidNumber => ErrorCategory::UnknownOrSyntax,
     }
 }
 
@@ -498,6 +499,12 @@ fn finish_error(
     } else {
         exit_code(category)
     }
+}
+
+/// Record a fatal error category and return its external Unix exit status.
+fn finish_fatal_error(category: ErrorCategory, last_error: &mut Option<ErrorCategory>) -> i32 {
+    *last_error = Some(category);
+    exit_code(category)
 }
 
 /// Emit the standard top-level prompt to stdout
