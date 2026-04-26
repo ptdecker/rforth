@@ -36,6 +36,15 @@
 \ Byte fetch should read back the stored VM memory byte.
 4097 C@ 122 = ?ABORT
 
+\ BASE should expose the default decimal radix.
+BASE @ 10 = ?ABORT
+
+\ BASE should control source numeric input; after this, 10 is octal eight.
+8 BASE ! 10 10 = ?ABORT
+
+\ Restore decimal input. In octal, 12 is decimal ten.
+12 BASE !
+
 \ Colon definitions should compile source tokens into dictionary words.
 : THREE ( ignored while compiling ) 3 ;
 

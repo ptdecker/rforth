@@ -23,6 +23,8 @@ pub mod io;
 pub mod memory;
 /// Data-stack words such as `DUP`, `DROP`, and `SWAP`
 pub mod stack;
+/// System variable words such as `BASE`
+pub mod system;
 
 /// Control the outcome produced by a primitive or threaded execution step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,10 +96,12 @@ pub enum Primitive {
     Over = 24,
     /// Abort the current run.
     Abort = 25,
-    /// Print the top stack cell in signed decimal.
+    /// Print the top stack cell in the current base followed by a space.
     Dot = 26,
     /// Abort the current run when the top stack flag is zero.
     QuestionAbort = 27,
+    /// Push the address of the current number-conversion radix cell.
+    Base = 28,
 }
 
 impl Primitive {
@@ -136,6 +140,7 @@ impl Primitive {
             25 => Some(Self::Abort),
             26 => Some(Self::Dot),
             27 => Some(Self::QuestionAbort),
+            28 => Some(Self::Base),
             _ => None,
         }
     }
@@ -170,6 +175,7 @@ impl Primitive {
             Self::Abort => control::execute_abort(vm),
             Self::Dot => io::execute_dot(vm),
             Self::QuestionAbort => control::execute_question_abort(vm),
+            Self::Base => system::execute_base(vm),
         }
     }
 }
@@ -181,6 +187,7 @@ pub fn install_stage_zero<I: ForthIo>(vm: &mut ForthVm<I>) -> Result<(), VmError
     compiler::install(vm)?;
     stack::install(vm)?;
     arithmetic::install(vm)?;
+    system::install(vm)?;
     memory::install(vm)?;
     io::install(vm)?;
     Ok(())

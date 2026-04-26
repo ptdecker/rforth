@@ -306,6 +306,187 @@ fn batch_mode_compiles_and_executes_a_colon_definition() {
     );
 }
 
+/// Verifies BASE controls both source numeric input and dot output.
+#[test]
+fn batch_mode_uses_base_for_octal_input_and_output() {
+    let mut io = ScriptedIo::new(b"8 BASE ! 10 .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(exit, 0, "valid octal input should complete successfully");
+    assert_eq!(
+        io.output.as_slice(),
+        b"10 ",
+        "10 should parse as octal eight and print as octal 10"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "valid octal input should not emit diagnostics"
+    );
+}
+
+/// Verifies BASE preserves ordinary valid octal digits.
+#[test]
+fn batch_mode_accepts_valid_octal_digits() {
+    let mut io = ScriptedIo::new(b"8 BASE ! 17 .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(exit, 0, "valid octal digits should parse successfully");
+    assert_eq!(
+        io.output.as_slice(),
+        b"17 ",
+        "17 should parse as octal fifteen and print as octal 17"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "valid octal input should not emit diagnostics"
+    );
+}
+
+/// Verifies BASE applies to signed single-cell numeric input.
+#[test]
+fn batch_mode_accepts_negative_octal_input() {
+    let mut io = ScriptedIo::new(b"8 BASE ! -10 .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(exit, 0, "negative octal input should parse successfully");
+    assert_eq!(
+        io.output.as_slice(),
+        b"-10 ",
+        "-10 should parse as negative octal eight and print as octal -10"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "valid negative octal input should not emit diagnostics"
+    );
+}
+
+/// Verifies BASE supports uppercase hexadecimal letter digits.
+#[test]
+fn batch_mode_accepts_uppercase_hex_input() {
+    let mut io = ScriptedIo::new(b"16 BASE ! FF .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(exit, 0, "uppercase hex input should parse successfully");
+    assert_eq!(
+        io.output.as_slice(),
+        b"FF ",
+        "FF should parse as decimal 255 and print as uppercase hexadecimal FF"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "valid uppercase hex input should not emit diagnostics"
+    );
+}
+
+/// Verifies hexadecimal input is case-insensitive while output stays uppercase.
+#[test]
+fn batch_mode_accepts_lowercase_hex_input_and_outputs_uppercase() {
+    let mut io = ScriptedIo::new(b"16 BASE ! ff .\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(exit, 0, "lowercase hex input should parse successfully");
+    assert_eq!(
+        io.output.as_slice(),
+        b"FF ",
+        "lowercase ff should parse as decimal 255 and print as uppercase hexadecimal FF"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "valid lowercase hex input should not emit diagnostics"
+    );
+}
+
+/// Verifies digits outside the current BASE are reported as invalid numbers.
+#[test]
+fn batch_mode_rejects_digit_outside_current_base() {
+    let mut io = ScriptedIo::new(b"8 BASE ! 8\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 1,
+        "a numeric-looking token with an out-of-range digit should fail"
+    );
+    assert!(
+        io.output.is_empty(),
+        "invalid numeric input should not emit normal output"
+    );
+    assert_eq!(
+        io.stderr.as_slice(),
+        b"invalid-number ?\n",
+        "out-of-range digits should be reported as invalid numbers"
+    );
+}
+
+/// Verifies a leading plus sign is not accepted as stage-zero numeric input.
+#[test]
+fn batch_mode_does_not_accept_leading_plus_number() {
+    let mut io = ScriptedIo::new(b"+1\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(exit, 1, "leading plus input should not parse as a number");
+    assert!(
+        io.output.is_empty(),
+        "unknown source should not emit normal output"
+    );
+    assert_eq!(
+        io.stderr.as_slice(),
+        b"+1 ?\n",
+        "leading plus numeric-looking input should remain an unknown word"
+    );
+}
+
+/// Verifies invalid BASE values fail number conversion and dot output.
+#[test]
+fn batch_mode_rejects_invalid_base_for_output() {
+    let mut low = ScriptedIo::new(b"10 1 BASE ! .\n", false);
+    let mut high = ScriptedIo::new(b"10 37 BASE ! .\n", false);
+
+    let low_exit = run_forth(&mut low);
+    let high_exit = run_forth(&mut high);
+
+    assert_eq!(low_exit, 1, "BASE below 2 should fail conversion");
+    assert_eq!(
+        low.stderr.as_slice(),
+        b"invalid-base ?\n",
+        "BASE below 2 should report invalid-base"
+    );
+    assert_eq!(high_exit, 1, "BASE above 36 should fail conversion");
+    assert_eq!(
+        high.stderr.as_slice(),
+        b"invalid-base ?\n",
+        "BASE above 36 should report invalid-base"
+    );
+}
+
+/// Verifies double-cell punctuation numeric input is not accepted yet.
+#[test]
+fn batch_mode_rejects_trailing_dot_double_cell_number_for_now() {
+    let mut io = ScriptedIo::new(b"10.\n", false);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 1,
+        "double-cell punctuation input is deferred and should fail for now"
+    );
+    assert!(
+        io.output.is_empty(),
+        "unsupported numeric punctuation should not emit normal output"
+    );
+    assert_eq!(
+        io.stderr.as_slice(),
+        b"invalid-number ?\n",
+        "numeric punctuation should be reported as unsupported numeric input"
+    );
+}
+
 /// Verifies source-level ABORT reports a user-facing failure instead of an internal error.
 #[test]
 fn batch_mode_reports_abort_as_source_failure() {

@@ -10,8 +10,8 @@ use common::ScriptedIo;
 use rforth::{
     io::ForthIo,
     vm::{
-        Address, CELL_SIZE, Cell, DICTIONARY_NAME_BYTES_OFFSET, ForthVm, InterpreterState,
-        NO_ADDRESS, VmError, WORD_FLAG_PRIMITIVE,
+        Address, BASE_ADDRESS, CELL_SIZE, Cell, DEFAULT_BASE, DICTIONARY_NAME_BYTES_OFFSET,
+        ForthVm, InterpreterState, NO_ADDRESS, VmError, WORD_FLAG_PRIMITIVE,
     },
     words::{Control, install_stage_zero},
 };
@@ -66,6 +66,43 @@ fn installs_stage_zero_words_in_expected_order() {
         docol_entry.flags & WORD_FLAG_PRIMITIVE,
         WORD_FLAG_PRIMITIVE,
         "DOCOL should be marked as a primitive word in the dictionary"
+    );
+}
+
+/// Verifies `BASE` exposes the address of the number-conversion radix cell.
+#[test]
+fn executes_stage_zero_base_word() {
+    let io = ScriptedIo::new(b"", false);
+    let mut vm = ForthVm::new(io);
+    install_stage_zero(&mut vm).expect("stage-zero installation should succeed");
+
+    let base_working_register = find_word(&mut vm, "BASE").expect("BASE should be installed");
+    let fetch_working_register = find_word(&mut vm, "@").expect("@ should be installed");
+
+    assert_eq!(
+        vm.run_word(base_working_register)
+            .expect("running BASE should succeed"),
+        Control::Continue,
+        "BASE should complete with a continue control result"
+    );
+    assert_eq!(
+        vm.pop_data().expect("BASE should push one address"),
+        Cell::from(BASE_ADDRESS),
+        "BASE should push the VM address of the radix cell"
+    );
+
+    vm.run_word(base_working_register)
+        .expect("running BASE again should succeed");
+    assert_eq!(
+        vm.run_word(fetch_working_register)
+            .expect("running @ on BASE should succeed"),
+        Control::Continue,
+        "@ should fetch the cell address pushed by BASE"
+    );
+    assert_eq!(
+        vm.pop_data().expect("BASE @ should leave the current base"),
+        DEFAULT_BASE,
+        "BASE @ should read the initialized decimal radix"
     );
 }
 
