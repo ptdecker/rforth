@@ -417,8 +417,8 @@ fn compile_or_push_literal(
 /// Parse one signed single-cell numeric literal token
 ///
 /// Stage-zero follows the single-cell portion of classic Forth text interpreter behavior: a token
-/// that is not found in the dictionary may be converted with the current `BASE`, with an optional
-/// leading minus sign. Double-cell punctuation and floating-point input are intentionally deferred.
+/// not found in the dictionary may be converted with the current `BASE`, with an optional leading
+/// minus sign. Double-cell punctuation and floating-point input are intentionally deferred.
 fn parse_single_cell_number(token: &[u8], base: u32) -> Result<Option<Cell>, VmError> {
     if token.is_empty() {
         return Ok(None);

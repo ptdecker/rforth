@@ -182,7 +182,7 @@ fn initializes_vm_layout() {
     );
 }
 
-/// Verifies the VM exposes and validates the current number-conversion base.
+/// Verifies the VM both exposes and validates the current number-conversion base.
 #[test]
 fn base_defaults_to_decimal_and_rejects_invalid_values() {
     let io = ScriptedIo::new(b"", false);

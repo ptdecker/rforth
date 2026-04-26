@@ -122,13 +122,13 @@ double-cell punctuation numeric input is deferred.
 
 The current VM memory layout is:
 
-| Start    | Size          | Region                       | Notes                              |
-|----------|---------------|------------------------------|------------------------------------|
-| `0x0000` | 128 bytes     | User variables               | `0x0000..=0x007F`; `BASE` first    |
-| `0x0080` | 57,216 bytes  | Dictionary                   | `0x0080..=0xDFFF`; grows upward    |
-| `0xE000` | 256 bytes     | Terminal Input Buffer        | `0xE000..=0xE0FF`                  |
-| `0xE100` | 7.5K bytes    | Shared stack arena           | `0xE100..=0xFEFF`                  |
-| `0xFF00` | 256 bytes     | Reserved input/output region | `0xFF00..=0xFFFF`                  |
+| Start    | Size       | Region                       | Notes                              |
+|----------|------------|------------------------------|------------------------------------|
+| `0x0000` | 128 bytes  | User variables               | `0x0000..=0x007F`; `BASE` first    |
+| `0x0080` | ~57K bytes | Dictionary                   | `0x0080..=0xDFFF`; grows upward    |
+| `0xE000` | 256 bytes  | Terminal Input Buffer (TIB)  | `0xE000..=0xE0FF`                  |
+| `0xE100` | 7.5K bytes | Shared stack arena           | `0xE100..=0xFEFF`                  |
+| `0xFF00` | 256 bytes  | Reserved input/output region | `0xFF00..=0xFFFF`                  |
 
 This layout keeps task-local user variables, the dictionary, and the source buffer low in memory
 and reserves a shared opposing-stack arena in the middle. It also pins a dedicated input/output
