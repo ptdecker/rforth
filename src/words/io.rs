@@ -79,9 +79,6 @@ pub(crate) fn execute_dot<I: ForthIo>(vm: &mut ForthVm<I>) -> Result<Control, Vm
     let value = vm.pop_data()?;
     emit_decimal(&mut vm.io, value);
     vm.io.emit(b' ');
-    if vm.io.is_interactive() {
-        vm.io.emit(b'\n');
-    }
     Ok(Control::Continue)
 }
 

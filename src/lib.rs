@@ -167,6 +167,7 @@ fn process_input_byte(
 ) -> Option<i32> {
     if interactive && (byte == BACKSPACE_BYTE || byte == DELETE_BYTE) {
         if vm.remove_last_tib_byte() {
+            *line_overflowed = false;
             emit_bytes(&mut vm.io, ERASE_PREVIOUS_CHARACTER);
         }
         return None;
@@ -260,6 +261,7 @@ fn process_line(
 ) -> Option<i32> {
     let mut scratch = [0u8; TIB_SIZE];
     vm.input_pos = 0;
+    let mut line_emitted_output = false;
 
     loop {
         let token = match vm.next_tib_word(&mut scratch) {
@@ -293,6 +295,9 @@ fn process_line(
                 }
             }
         }
+
+        let token_may_emit_output =
+            vm.state == vm::InterpreterState::Interpreting && (token == b"." || token == b"EMIT");
 
         match interpret_token(vm, token) {
             Ok(Control::Continue) => {}
@@ -330,10 +335,15 @@ fn process_line(
                 return if interactive { None } else { Some(code) };
             }
         }
+
+        line_emitted_output |= token_may_emit_output;
     }
 
     vm.reset_tib();
     if interactive && vm.state == vm::InterpreterState::Interpreting {
+        if line_emitted_output {
+            vm.io.emit(b'\n');
+        }
         emit_ok(&mut vm.io);
     }
     None
@@ -342,7 +352,9 @@ fn process_line(
 /// Skip source tokens until the end of a parenthesized comment
 ///
 /// Stage-zero source comments are whitespace-tokenized, so `( comment )` is accepted while
-/// `(comment)` remains an ordinary token. An unterminated comment is malformed source code.
+/// `(comment)` remains an ordinary token. They are also line-local because the parser only scans
+/// the current terminal input buffer contents; `( ... )` comments must open and close on the same
+/// source line. An unterminated comment is malformed source code.
 fn skip_parenthesized_comment(
     vm: &mut ForthVm<&mut impl ForthIo>,
     scratch: &mut [u8; TIB_SIZE],
@@ -492,11 +504,11 @@ fn finish_error(
     category: ErrorCategory,
     last_error: &mut Option<ErrorCategory>,
 ) -> i32 {
-    *last_error = Some(category);
     if interactive {
         emit_ok(io);
         EXIT_SUCCESS
     } else {
+        *last_error = Some(category);
         exit_code(category)
     }
 }

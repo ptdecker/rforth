@@ -7,6 +7,7 @@
 #
 # Usage:
 #   scripts/check-ci.sh
+#   scripts/check-ci.sh --ci-runner
 #
 # Notes:
 #   The script assumes it is run from the repository root and that the stable Rust toolchain is
@@ -15,33 +16,49 @@
 #   the batch stdin path is validated in addition to the Rust test suite.
 set -eu
 
+CI_MODE=0
+for arg in "$@"; do
+    if [ "$arg" = "--ci-runner" ]; then
+        CI_MODE=1
+    fi
+done
+
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT HUP INT TERM
+SELF_TEST_STDOUT="$TMPDIR/stage0-self-test.stdout"
+SELF_TEST_STDERR="$TMPDIR/stage0-self-test.stderr"
+
 # Keep formatting independent of feature selection; one pass is enough.
-cargo fmt
+if [ "$CI_MODE" = "1" ]; then
+    cargo fmt --check
+else
+    cargo fmt
+fi
 
 # Default VM profile: direct memory-mapped I/O.
 cargo test
 cargo clippy --all-targets -- -D warnings
-cargo run --quiet < tests/stage0_self_test.fth > /tmp/rforth-stage0-self-test.stdout 2> /tmp/rforth-stage0-self-test.stderr
-test "$(cat /tmp/rforth-stage0-self-test.stdout)" = "66 X"
-test ! -s /tmp/rforth-stage0-self-test.stderr
+cargo run --quiet < tests/stage0_self_test.fth > "$SELF_TEST_STDOUT" 2> "$SELF_TEST_STDERR"
+test "$(cat "$SELF_TEST_STDOUT")" = "66 X"
+test ! -s "$SELF_TEST_STDERR"
 
 # UART over memory-mapped I/O.
 cargo test --features vm-uart
 cargo clippy --all-targets --features vm-uart -- -D warnings
-cargo run --quiet --features vm-uart < tests/stage0_self_test.fth > /tmp/rforth-stage0-self-test.stdout 2> /tmp/rforth-stage0-self-test.stderr
-test "$(cat /tmp/rforth-stage0-self-test.stdout)" = "66 X"
-test ! -s /tmp/rforth-stage0-self-test.stderr
+cargo run --quiet --features vm-uart < tests/stage0_self_test.fth > "$SELF_TEST_STDOUT" 2> "$SELF_TEST_STDERR"
+test "$(cat "$SELF_TEST_STDOUT")" = "66 X"
+test ! -s "$SELF_TEST_STDERR"
 
 # Direct port-mapped I/O.
 cargo test --features vm-port-io
 cargo clippy --all-targets --features vm-port-io -- -D warnings
-cargo run --quiet --features vm-port-io < tests/stage0_self_test.fth > /tmp/rforth-stage0-self-test.stdout 2> /tmp/rforth-stage0-self-test.stderr
-test "$(cat /tmp/rforth-stage0-self-test.stdout)" = "66 X"
-test ! -s /tmp/rforth-stage0-self-test.stderr
+cargo run --quiet --features vm-port-io < tests/stage0_self_test.fth > "$SELF_TEST_STDOUT" 2> "$SELF_TEST_STDERR"
+test "$(cat "$SELF_TEST_STDOUT")" = "66 X"
+test ! -s "$SELF_TEST_STDERR"
 
 # UART registers over port-mapped I/O.
 cargo test --features vm-port-io,vm-uart
 cargo clippy --all-targets --features vm-port-io,vm-uart -- -D warnings
-cargo run --quiet --features vm-port-io,vm-uart < tests/stage0_self_test.fth > /tmp/rforth-stage0-self-test.stdout 2> /tmp/rforth-stage0-self-test.stderr
-test "$(cat /tmp/rforth-stage0-self-test.stdout)" = "66 X"
-test ! -s /tmp/rforth-stage0-self-test.stderr
+cargo run --quiet --features vm-port-io,vm-uart < tests/stage0_self_test.fth > "$SELF_TEST_STDOUT" 2> "$SELF_TEST_STDERR"
+test "$(cat "$SELF_TEST_STDOUT")" = "66 X"
+test ! -s "$SELF_TEST_STDERR"

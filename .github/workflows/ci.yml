@@ -30,7 +30,7 @@ jobs:
           rustup default stable
 
       - name: Run CI checks
-        run: scripts/check-ci.sh
+        run: scripts/check-ci.sh --ci-runner
 
       - name: Build binary
         run: cargo build

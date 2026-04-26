@@ -6,6 +6,9 @@
 \ Addition should produce the expected sum.
 1 2 + 3 = ?ABORT ( Parenthesized comments should also be ignored. )
 
+\ Note: ( ) comments must open and close on the same line. A multi-line
+\ ( comment spanning two lines ) is not supported in this stage-zero runner.
+
 \ Subtraction should produce the expected difference.
 5 2 - 3 = ?ABORT
 

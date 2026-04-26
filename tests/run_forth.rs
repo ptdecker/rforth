@@ -48,6 +48,29 @@ fn interactive_mode_echoes_input_and_reports_errors_to_stderr() {
     );
 }
 
+/// Verifies recoverable interactive errors do not affect a later clean BYE exit status.
+#[test]
+fn interactive_mode_returns_success_after_recovering_from_error() {
+    let mut io = ScriptedIo::new(b"bad\n1 .\nBYE\n", true);
+
+    let exit = run_forth(&mut io);
+
+    assert_eq!(
+        exit, 0,
+        "a recovered interactive source error should not make a later BYE return failure"
+    );
+    assert_eq!(
+        io.output.as_slice(),
+        b"OK\nbad\nOK\n1 .\n1 \nOK\nBYE\n",
+        "interactive mode should continue normally after the recovered error"
+    );
+    assert_eq!(
+        io.stderr.as_slice(),
+        b"bad ?\n",
+        "the recovered error should still be reported to stderr"
+    );
+}
+
 /// Verifies interactive backspace deletes the previous buffered input byte.
 #[test]
 fn interactive_mode_backspace_deletes_previous_input_byte() {
@@ -149,17 +172,17 @@ fn carriage_return_echoes_newline_before_prompt_in_interactive_mode() {
     );
 }
 
-/// Verifies interactive dot output leaves the next prompt on a fresh line.
+/// Verifies interactive dot output stays standard and prompt placement is handled by the REPL.
 #[test]
-fn interactive_dot_output_puts_prompt_on_next_line() {
-    let mut io = ScriptedIo::new(b"1 .\n", true);
+fn interactive_dot_output_keeps_trailing_space_before_prompt_newline() {
+    let mut io = ScriptedIo::new(b"1 . 2 .\n", true);
 
-    run_forth_steps(&mut io, b"1 .\n".len());
+    run_forth_steps(&mut io, b"1 . 2 .\n".len());
 
     assert_eq!(
         io.output.as_slice(),
-        b"OK\n1 .\n1 \nOK\n",
-        "interactive dot output should not leave the next prompt attached to the number"
+        b"OK\n1 . 2 .\n1 2 \nOK\n",
+        "dot should emit only trailing spaces while the REPL puts the prompt on the next line"
     );
     assert!(
         io.stderr.is_empty(),
@@ -214,6 +237,34 @@ fn suppresses_execution_after_terminal_input_buffer_overflow() {
         io.stderr.as_slice(),
         b"tib-overflow ?\n",
         "overflowed input should be discarded and reported to stderr once the newline arrives"
+    );
+}
+
+/// Verifies interactive backspace can recover after a terminal input buffer overflow.
+#[test]
+fn interactive_backspace_after_overflow_accepts_more_input() {
+    let mut input = vec![b' '; TIB_SIZE - 3];
+    input.extend_from_slice(b"1 .x\x7f.\n");
+    let mut io = ScriptedIo::new(&input, true);
+
+    let exit = run_forth(&mut io);
+
+    let mut expected_output = b"OK\n".to_vec();
+    expected_output.extend(core::iter::repeat_n(b' ', TIB_SIZE - 3));
+    expected_output.extend_from_slice(b"1 .\x08 \x08.\n1 \nOK\n");
+
+    assert_eq!(
+        exit, 0,
+        "backspace should clear overflow state once the TIB is below capacity"
+    );
+    assert_eq!(
+        io.output.as_slice(),
+        expected_output.as_slice(),
+        "interactive input should echo the recovered line and execute it"
+    );
+    assert!(
+        io.stderr.is_empty(),
+        "recovering from the overflow before Enter should avoid a TIB diagnostic"
     );
 }
 
