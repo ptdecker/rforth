@@ -385,7 +385,8 @@ fn interpret_token(
         return Ok(Control::Continue);
     }
 
-    match parse_signed_decimal(token) {
+    let base = vm.validated_base().map_err(InterpretError::Vm)?;
+    match parse_single_cell_number(token, base) {
         Ok(Some(value)) => compile_or_push_literal(vm, value).map_err(InterpretError::Vm),
         Ok(None) => Err(InterpretError::UnknownWord),
         Err(error) => Err(InterpretError::Vm(error)),
@@ -413,26 +414,21 @@ fn compile_or_push_literal(
     Ok(Control::Continue)
 }
 
-/// Parse one signed decimal literal token
+/// Parse one signed single-cell numeric literal token
 ///
-/// The first source-driven milestone intentionally keeps literal syntax narrow, so batch scripts
-/// and interactive use are predictable before a richer number of formats are added.
-fn parse_signed_decimal(token: &[u8]) -> Result<Option<Cell>, VmError> {
+/// Stage-zero follows the single-cell portion of classic Forth text interpreter behavior: a token
+/// that is not found in the dictionary may be converted with the current `BASE`, with an optional
+/// leading minus sign. Double-cell punctuation and floating-point input are intentionally deferred.
+fn parse_single_cell_number(token: &[u8], base: u32) -> Result<Option<Cell>, VmError> {
     if token.is_empty() {
         return Ok(None);
     }
 
     let mut index = 0usize;
     let mut negative = false;
-    match token[0] {
-        b'-' => {
-            negative = true;
-            index = 1;
-        }
-        b'+' => {
-            index = 1;
-        }
-        _ => {}
+    if token[0] == b'-' {
+        negative = true;
+        index = 1;
     }
 
     if index == token.len() {
@@ -440,14 +436,31 @@ fn parse_signed_decimal(token: &[u8]) -> Result<Option<Cell>, VmError> {
     }
 
     let mut value: i128 = 0;
+    let mut saw_digit = false;
     for byte in &token[index..] {
-        if !byte.is_ascii_digit() {
-            return Ok(None);
+        let Some(digit) = digit_value(*byte) else {
+            return if saw_digit {
+                Err(VmError::InvalidNumber)
+            } else {
+                Ok(None)
+            };
+        };
+        if digit >= base {
+            return if saw_digit || byte.is_ascii_digit() {
+                Err(VmError::InvalidNumber)
+            } else {
+                Ok(None)
+            };
         }
+        saw_digit = true;
         value = value
-            .checked_mul(10)
-            .and_then(|v| v.checked_add(i128::from(byte - b'0')))
+            .checked_mul(i128::from(base))
+            .and_then(|v| v.checked_add(i128::from(digit)))
             .ok_or(VmError::InvalidNumber)?;
+    }
+
+    if !saw_digit {
+        return Ok(None);
     }
 
     if negative {
@@ -457,6 +470,16 @@ fn parse_signed_decimal(token: &[u8]) -> Result<Option<Cell>, VmError> {
     Cell::try_from(value)
         .map(Some)
         .map_err(|_| VmError::InvalidNumber)
+}
+
+/// Convert one ASCII digit character to its numeric value for bases up to 36.
+fn digit_value(byte: u8) -> Option<u32> {
+    match byte {
+        b'0'..=b'9' => Some(u32::from(byte - b'0')),
+        b'A'..=b'Z' => Some(u32::from(byte - b'A') + 10),
+        b'a'..=b'z' => Some(u32::from(byte - b'a') + 10),
+        _ => None,
+    }
 }
 
 /// Convert one VM error into a runner exit category

@@ -74,10 +74,11 @@ pub(crate) fn execute_emit<I: ForthIo>(vm: &mut ForthVm<I>) -> Result<Control, V
     Ok(Control::Continue)
 }
 
-/// Execute `.` by printing the top stack cell in signed decimal followed by a space.
+/// Execute `.` by printing the top stack cell in the current base followed by a space.
 pub(crate) fn execute_dot<I: ForthIo>(vm: &mut ForthVm<I>) -> Result<Control, VmError> {
+    let base = vm.validated_base()?;
     let value = vm.pop_data()?;
-    emit_decimal(&mut vm.io, value);
+    emit_number(&mut vm.io, value, base);
     vm.io.emit(b' ');
     Ok(Control::Continue)
 }
@@ -95,17 +96,17 @@ fn write_output<I: ForthIo>(vm: &mut ForthVm<I>, value: Cell) -> Result<(), VmEr
     vm.write_cell(ACTIVE_EMIT_ADDRESS, value)
 }
 
-/// Emit one signed decimal cell without allocating.
-fn emit_decimal(io: &mut impl ForthIo, value: Cell) {
-    let mut buf = [0u8; 20];
+/// Emit one signed cell in the selected radix without allocating.
+fn emit_number(io: &mut impl ForthIo, value: Cell, base: u32) {
+    let mut buf = [0u8; 64];
     let negative = value < 0;
     let mut magnitude = value.unsigned_abs();
     let mut len = 0;
 
     loop {
-        buf[len] = b'0' + (magnitude % 10) as u8;
+        buf[len] = digit_char((magnitude % u64::from(base)) as u8);
         len += 1;
-        magnitude /= 10;
+        magnitude /= u64::from(base);
         if magnitude == 0 {
             break;
         }
@@ -118,5 +119,13 @@ fn emit_decimal(io: &mut impl ForthIo, value: Cell) {
     while len > 0 {
         len -= 1;
         io.emit(buf[len]);
+    }
+}
+
+/// Convert one radix digit value to its uppercase ASCII character.
+fn digit_char(value: u8) -> u8 {
+    match value {
+        0..=9 => b'0' + value,
+        _ => b'A' + (value - 10),
     }
 }

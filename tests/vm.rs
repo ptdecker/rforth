@@ -10,10 +10,10 @@ mod common;
 use common::ScriptedIo;
 use rforth::{
     vm::{
-        Address, CELL_ALIGN, CELL_SIZE, Cell, DATA_STACK_BASE, DICTIONARY_START, ForthVm,
-        IO_REGION_BASE, IO_REGION_END, IO_REGION_SIZE, InterpreterState, MEMORY_SIZE, MemoryWord,
-        NO_ADDRESS, RETURN_STACK_BASE, StackKind, TIB_END, TIB_SIZE, TIB_START, VmError,
-        address_index,
+        Address, BASE_ADDRESS, CELL_ALIGN, CELL_SIZE, Cell, DATA_STACK_BASE, DEFAULT_BASE,
+        DICTIONARY_START, ForthVm, IO_REGION_BASE, IO_REGION_END, IO_REGION_SIZE, InterpreterState,
+        MEMORY_SIZE, MemoryWord, NO_ADDRESS, RETURN_STACK_BASE, StackKind, TIB_END, TIB_SIZE,
+        TIB_START, USER_AREA_CELLS, USER_AREA_SIZE, USER_AREA_START, VmError, address_index,
     },
     words::Primitive,
 };
@@ -68,6 +68,22 @@ const TIB_SAMPLE: &[MemoryWord] = b"abc";
 /// provide that context, so broken layout or sizing relationships fail the build before the test
 /// runner starts.
 const _: () = {
+    assert!(
+        BASE_ADDRESS == USER_AREA_START,
+        "BASE should live in the first user variable cell"
+    );
+    assert!(
+        USER_AREA_SIZE == USER_AREA_CELLS * CELL_SIZE,
+        "user area size should be derived from its cell count"
+    );
+    assert!(
+        DICTIONARY_START == USER_AREA_START + USER_AREA_SIZE as Address,
+        "dictionary should start immediately after the user area"
+    );
+    assert!(
+        (DICTIONARY_START as usize).is_multiple_of(CELL_ALIGN),
+        "dictionary start should remain cell-aligned"
+    );
     assert!(
         DICTIONARY_START < TIB_START,
         "dictionary must start below the terminal input buffer"
@@ -125,6 +141,11 @@ fn initializes_vm_layout() {
         "compile pointer should start at DICTIONARY_START"
     );
     assert_eq!(
+        vm.memory()[BASE_ADDRESS as usize..BASE_ADDRESS as usize + CELL_SIZE],
+        DEFAULT_BASE.to_le_bytes(),
+        "BASE should be initialized in the first user variable cell"
+    );
+    assert_eq!(
         vm.instruction_pointer, NO_ADDRESS,
         "instruction pointer should start invalid until threaded execution begins"
     );
@@ -162,6 +183,48 @@ fn initializes_vm_layout() {
         vm.memory().len(),
         MEMORY_SIZE,
         "backing memory length should match MEMORY_SIZE"
+    );
+}
+
+/// Verifies the VM exposes and validates the current number-conversion base.
+#[test]
+fn base_defaults_to_decimal_and_rejects_invalid_values() {
+    let io = ScriptedIo::new(b"", false);
+    let mut vm = ForthVm::new(io);
+
+    assert_eq!(
+        vm.base().unwrap(),
+        DEFAULT_BASE,
+        "new VMs should initialize BASE to decimal"
+    );
+    assert_eq!(
+        vm.validated_base().unwrap(),
+        DEFAULT_BASE as u32,
+        "the default BASE should be in the supported range"
+    );
+
+    vm.write_cell(BASE_ADDRESS, 8)
+        .expect("writing an alternate base should succeed");
+    assert_eq!(
+        vm.validated_base().unwrap(),
+        8,
+        "valid BASE updates should be visible through validated_base"
+    );
+
+    vm.write_cell(BASE_ADDRESS, 1)
+        .expect("writing an invalid low base should succeed");
+    assert_eq!(
+        vm.validated_base(),
+        Err(VmError::InvalidNumber),
+        "BASE below 2 should be rejected during conversion"
+    );
+
+    vm.write_cell(BASE_ADDRESS, 37)
+        .expect("writing an invalid high base should succeed");
+    assert_eq!(
+        vm.validated_base(),
+        Err(VmError::InvalidNumber),
+        "BASE above 36 should be rejected during conversion"
     );
 }
 

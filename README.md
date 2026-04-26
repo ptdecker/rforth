@@ -18,6 +18,7 @@ compiler words `:` / `;`, and `KEY` / `EMIT` / `.`. The runner now supports:
 - simple interactive backspace/delete editing at the end of the current line
 - batch stdin mode for a piped or redirected Forth source
 - signed decimal literals and source-defined colon words
+- configurable single-cell numeric input and `.` output through `BASE`
 - basic Forth source comments with `\` and single-line, whitespace-delimited `( ... )`
 - stderr diagnostics with nonzero Unix exit codes on batch failures
 
@@ -115,23 +116,27 @@ and port-mapped models. The stage-zero engine installs dictionary-resident primi
 execute colon definitions through the inner interpreter using the instruction pointer (`IP`), work
 register (`W`), and compile pointer (`P`) machine state. The source interpreter now compiles colon
 definitions by creating dictionary entries whose runtime code field dispatches through `DOCOL`.
+`BASE` is stored in the first user-variable cell, defaults to decimal `10`, and controls
+single-cell numeric input plus `.` output. It can currently be changed directly with `BASE !`;
+double-cell punctuation numeric input is deferred.
 
 The current VM memory layout is:
 
 ```mermaid
 flowchart TD
-    A["0x0000<br/>DICTIONARY_START<br/>Dictionary grows upward"] --> B["0xE000<br/>TIB_START<br/>Terminal Input Buffer (256 bytes)"]
-    B --> C["0xE100<br/>TIB_END / RETURN_STACK_BASE<br/>Return stack grows upward"]
-    C --> D["... shared free stack arena ..."]
-    D --> E["0xFE00<br/>DATA_STACK_BASE<br/>Data stack grows downward"]
-    E --> F["0xFF00<br/>IO_REGION_BASE<br/>Reserved I/O region (256 bytes)"]
-    F --> G["0x10000<br/>MEMORY_SIZE<br/>Top of address space"]
+    A["0x0000<br/>USER_AREA_START<br/>User variables (16 cells / 128 bytes)"] --> B["0x0080<br/>DICTIONARY_START<br/>Dictionary grows upward"]
+    B --> C["0xE000<br/>TIB_START<br/>Terminal Input Buffer (256 bytes)"]
+    C --> D["0xE100<br/>TIB_END / RETURN_STACK_BASE<br/>Return stack grows upward"]
+    D --> E["... shared free stack arena ..."]
+    E --> F["0xFE00<br/>DATA_STACK_BASE<br/>Data stack grows downward"]
+    F --> G["0xFF00<br/>IO_REGION_BASE<br/>Reserved I/O region (256 bytes)"]
+    G --> H["0x10000<br/>MEMORY_SIZE<br/>Top of address space"]
 ```
 
-This layout keeps the dictionary and source buffer low in memory and reserves a shared 
-opposing-stack arena in the middle. It also pins a dedicated input/output region at the top of the 
-address space so device-facing addresses stay stable as the dictionary grows regardless of the
-active I/O model.
+This layout keeps task-local user variables, the dictionary, and the source buffer low in memory
+and reserves a shared opposing-stack arena in the middle. It also pins a dedicated input/output
+region at the top of the address space so device-facing addresses stay stable as the dictionary
+grows regardless of the active I/O model.
 
 ## Wiki
 

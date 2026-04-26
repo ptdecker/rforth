@@ -48,11 +48,29 @@ pub const CELL_ALIGN: usize = CELL_SIZE;
 /// needing optional address storage in the core machine state.
 pub const NO_ADDRESS: Address = 0xFFFF;
 
+/// First address reserved for task-local user variables.
+///
+/// The initial VM has one task, but the user area keeps interpreter state such as `BASE` separate
+/// from dictionary allocation so later multitasking support can give each task its own copy.
+pub const USER_AREA_START: Address = 0x0000;
+
+/// Number of task-local user-variable cells reserved at the bottom of VM memory.
+pub const USER_AREA_CELLS: usize = 16;
+
+/// Size of the reserved user-variable area in memory words.
+pub const USER_AREA_SIZE: usize = USER_AREA_CELLS * CELL_SIZE;
+
+/// Address of the cell containing the current number-conversion radix.
+pub const BASE_ADDRESS: Address = USER_AREA_START;
+
+/// Default number-conversion radix stored in [`BASE_ADDRESS`].
+pub const DEFAULT_BASE: Cell = 10;
+
 /// First address available to the dictionary
 ///
-/// The dictionary starts at the bottom of memory, so compiled words can grow upward through the
-/// free space below the input buffer and stack arena.
-pub const DICTIONARY_START: Address = 0x0000;
+/// The dictionary starts immediately after the user-variable area and grows upward through the free
+/// space below the input buffer and stack arena.
+pub const DICTIONARY_START: Address = USER_AREA_START + USER_AREA_SIZE as Address;
 
 /// Start the address of the terminal input buffer
 ///
@@ -322,9 +340,14 @@ impl<I: ForthIo> ForthVm<I> {
     ///
     /// The VM starts in interpreting mode with empty stacks, an empty terminal input buffer, and
     /// dictionary allocation beginning at [`DICTIONARY_START`].
-    pub const fn new(io: I) -> Self {
+    pub fn new(io: I) -> Self {
+        let mut memory = [MEMORY_WORD_ZERO; MEMORY_SIZE];
+        let base_start = BASE_ADDRESS as usize;
+        let base_bytes = DEFAULT_BASE.to_le_bytes();
+        memory[base_start..base_start + CELL_SIZE].copy_from_slice(&base_bytes);
+
         Self {
-            memory: [MEMORY_WORD_ZERO; MEMORY_SIZE],
+            memory,
             compile_pointer: DICTIONARY_START,
             instruction_pointer: NO_ADDRESS,
             working_register: NO_ADDRESS,
@@ -426,6 +449,20 @@ impl<I: ForthIo> ForthVm<I> {
     /// Write an address into one dictionary or threaded-code cell.
     pub fn write_address(&mut self, address: Address, value: Address) -> Result<(), VmError> {
         self.write_cell(address, Cell::from(value))
+    }
+
+    /// Return the current number-conversion radix stored in `BASE`.
+    pub fn base(&mut self) -> Result<Cell, VmError> {
+        self.read_cell(BASE_ADDRESS)
+    }
+
+    /// Return the current number-conversion radix after validating the supported range.
+    pub fn validated_base(&mut self) -> Result<u32, VmError> {
+        let base = self.base()?;
+        if !(2..=36).contains(&base) {
+            return Err(VmError::InvalidNumber);
+        }
+        Ok(base as u32)
     }
 
     /// Push a cell onto the data stack.
