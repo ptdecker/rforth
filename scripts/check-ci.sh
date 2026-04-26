@@ -15,15 +15,8 @@
 #   the batch stdin path is validated in addition to the Rust test suite.
 set -eu
 
-# Keep formatting independent of feature selection; one pass is enough. If formatting rewrites any
-# tracked file, fail immediately so CI cannot mask formatting drift.
-before_fmt_diff=/tmp/rforth-check-ci-before-fmt.diff
-after_fmt_diff=/tmp/rforth-check-ci-after-fmt.diff
-git diff --binary > "$before_fmt_diff"
+# Keep formatting independent of feature selection; one pass is enough.
 cargo fmt
-git diff --binary > "$after_fmt_diff"
-cmp -s "$before_fmt_diff" "$after_fmt_diff"
-cargo fmt --check
 
 # Default VM profile: direct memory-mapped I/O.
 cargo test

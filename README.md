@@ -27,9 +27,8 @@ compiler words `:` / `;`, and `KEY` / `EMIT` / `.`. The runner now supports:
 cargo build          # build
 cargo run            # run the interpreter (Unix only)
 printf ': ONE 1 ; ONE .\n' | cargo run   # run a Forth source snippet through stdin
-cargo test           # run tests
-cargo clippy         # lint
-scripts/check-ci.sh               # format, test, and lint all VM variants
+cargo test           # run the default test suite
+scripts/check-ci.sh  # format, test, and lint all VM variants
 ```
 
 ## Testing
@@ -40,13 +39,13 @@ scripted `ForthIo` implementation to drive both the outer interpreter loop and t
 words without touching the terminal or raw syscalls. Batch-mode tests also feed actual `.fth` source
 fixtures through stdin semantics and check stdout, stderr, and exit-code behavior.
 
-Run the full test suite with:
+Run the default test suite with:
 
 ```bash
 cargo test
 ```
 
-Run the full VM feature matrix with:
+Run the full VM feature matrix with formatting and linting:
 
 ```bash
 scripts/check-ci.sh
