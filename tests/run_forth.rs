@@ -407,8 +407,8 @@ fn batch_mode_does_not_accept_leading_plus_number() {
 /// Verifies invalid BASE values fail number conversion and dot output.
 #[test]
 fn batch_mode_rejects_invalid_base_for_output() {
-    let mut low = ScriptedIo::new(b"1 BASE ! 10 .\n", false);
-    let mut high = ScriptedIo::new(b"37 BASE ! 10 .\n", false);
+    let mut low = ScriptedIo::new(b"10 1 BASE ! .\n", false);
+    let mut high = ScriptedIo::new(b"10 37 BASE ! .\n", false);
 
     let low_exit = run_forth(&mut low);
     let high_exit = run_forth(&mut high);
